@@ -1,0 +1,166 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// LISTINGS
+// ============================================================
+
+model Listing {
+  id          String        @id @default(uuid())
+  address     String
+  city        String
+  province    String
+  postalCode  String
+  price       Float
+  emailAlias  String        @unique // e.g., "l-abc123"
+  sellerId    String
+  status      ListingStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  threads Thread[]
+
+  @@index([sellerId])
+  @@index([emailAlias])
+  @@index([status])
+  @@map("listings")
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  EXPIRED
+  DRAFT
+}
+
+// ============================================================
+// MESSAGE THREADS
+// ============================================================
+
+model Thread {
+  id            String          @id @default(uuid())
+  listingId     String
+  senderId      String // FK to Sender
+  subject       String
+  category      MessageCategory @default(GENERAL)
+  status        ThreadStatus    @default(ACTIVE)
+  lastMessageAt DateTime        @default(now())
+  unreadCount   Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  listing  Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sender   Sender    @relation(fields: [senderId], references: [id])
+  messages Message[]
+
+  @@index([listingId])
+  @@index([senderId])
+  @@index([lastMessageAt])
+  @@map("threads")
+}
+
+enum ThreadStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MessageCategory {
+  OFFER
+  SHOWING
+  GENERAL
+}
+
+// ============================================================
+// MESSAGES
+// ============================================================
+
+model Message {
+  id            String           @id @default(uuid())
+  threadId      String
+  senderId      String? // null if from seller (outbound)
+  senderEmail   String
+  senderName    String
+  direction     MessageDirection
+  subject       String
+  bodyText      String           @db.Text
+  bodyHtml      String?          @db.Text
+  rawEmailS3Key String? // S3 key for raw .eml file
+  createdAt     DateTime         @default(now())
+
+  thread      Thread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender      Sender?      @relation(fields: [senderId], references: [id])
+  attachments Attachment[]
+
+  @@index([threadId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+enum MessageDirection {
+  INBOUND  // From buyer agent to seller
+  OUTBOUND // From seller to buyer agent
+}
+
+// ============================================================
+// ATTACHMENTS
+// ============================================================
+
+model Attachment {
+  id               String           @id @default(uuid())
+  messageId        String
+  filename         String
+  contentType      String
+  s3Key            String // Supabase Storage key
+  size             Int
+  virusScanStatus  VirusScanStatus  @default(PENDING)
+  virusScanResult  String?
+  createdAt        DateTime         @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+enum VirusScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+// ============================================================
+// SENDERS (Buyer Agents)
+// ============================================================
+
+model Sender {
+  id                   String   @id @default(uuid())
+  email                String   @unique
+  name                 String
+  domain               String // e.g., "remax.com"
+  isVerified           Boolean  @default(false)
+  verifiedAt           DateTime?
+  verificationSource   String? // e.g., "CREA directory", "manual", "domain whitelist"
+  brokerage            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  threads  Thread[]
+  messages Message[]
+
+  @@index([email])
+  @@index([domain])
+  @@index([isVerified])
+  @@map("senders")
+}
+

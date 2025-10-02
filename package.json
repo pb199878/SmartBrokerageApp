@@ -1,0 +1,27 @@
+{
+  "name": "smart-brokerage-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "setup": "npm run build:shared && npm run prisma:generate",
+    "build:shared": "npm run build --workspace=@smart-brokerage/shared",
+    "api": "npm run setup && npm run dev --workspace=@smart-brokerage/api",
+    "mobile": "npm run start --workspace=@smart-brokerage/mobile",
+    "dev": "npm run setup && concurrently \"npm run dev --workspace=@smart-brokerage/api\" \"npm run mobile\"",
+    "build:api": "npm run setup && npm run build --workspace=@smart-brokerage/api",
+    "build:mobile": "npm run build --workspace=@smart-brokerage/mobile",
+    "prisma:generate": "npm run prisma:generate --workspace=@smart-brokerage/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace=@smart-brokerage/api",
+    "prisma:studio": "npm run prisma:studio --workspace=@smart-brokerage/api",
+    "typecheck": "npm run build:shared && tsc --noEmit --project packages/api/tsconfig.json",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}
+

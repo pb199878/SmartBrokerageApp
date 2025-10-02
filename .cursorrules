@@ -1,0 +1,121 @@
+# Cursor AI Rules for Smart Brokerage App
+
+## Project Context
+This is a FSBO (For Sale By Owner) real estate platform for Ontario sellers with a focus on messaging between sellers and buyer agents.
+
+## Tech Stack
+- Backend: NestJS + Prisma + Supabase + Mailgun + BullMQ
+- Mobile: Expo (React Native) + React Query + React Native Paper
+- Shared: TypeScript types
+- Monorepo: npm workspaces
+
+## Code Style
+
+### TypeScript
+- Use strict TypeScript
+- Prefer interfaces over types for object shapes
+- Use enums for status/category fields
+- Always import types from @smart-brokerage/shared
+
+### NestJS Backend
+- Use modular structure (one module per feature)
+- Use dependency injection
+- Controllers handle HTTP, Services handle business logic
+- Use Prisma for all database operations
+- Stub external services until configured (Mailgun, Supabase, Redis)
+
+### React Native / Expo
+- Use functional components with hooks
+- Use React Query for server state
+- Use React Native Paper for UI components
+- Keep business logic in services/api.ts
+- Use TypeScript for all components
+
+### File Organization
+- Group by feature (modules/listings/, modules/threads/, etc.)
+- Keep types in packages/shared/src/types/
+- One component per file
+- Co-locate tests with source files
+
+## Naming Conventions
+- Components: PascalCase (ListingsScreen.tsx)
+- Services: camelCase (listingsService)
+- Files: kebab-case or PascalCase
+- Database tables: snake_case (snake_case in Prisma schema)
+- API endpoints: kebab-case (/listings/:id/threads)
+
+## Important Patterns
+
+### API Responses
+Always return consistent shapes:
+```typescript
+{ success: boolean, data?: T, error?: string }
+```
+
+### Error Handling
+- Use NestJS built-in exceptions
+- Log errors with context
+- Return user-friendly error messages
+
+### Database Queries
+- Use Prisma Client (already injected via PrismaService)
+- Always handle null cases
+- Use transactions for multi-step operations
+
+### Mobile API Calls
+- Use React Query for all API calls
+- Handle loading, error, and success states
+- Cache aggressively for read operations
+
+## Stubbed Services
+Until external services are configured, keep stub implementations:
+- PrismaService: Log DB operations, return mock data
+- SupabaseService: Log storage operations, return fake URLs
+- MailgunService: Log email sends, don't actually send
+
+## When Adding Features
+1. Update Prisma schema if needed
+2. Add types to packages/shared/src/types/
+3. Create/update NestJS module
+4. Add API client method in mobile/src/services/api.ts
+5. Create React Query hooks in mobile screens
+6. Update README with new endpoints
+
+## Common Tasks
+
+### Adding a new API endpoint:
+1. Add to appropriate controller
+2. Implement in service
+3. Add to mobile/src/services/api.ts
+4. Use with React Query in screen
+
+### Adding a new database model:
+1. Update prisma/schema.prisma
+2. Run `npm run prisma:generate`
+3. Add types to packages/shared/
+4. Create service methods
+
+### Adding a new screen:
+1. Create in packages/mobile/src/screens/
+2. Add to navigation/AppNavigator.tsx
+3. Add API calls via React Query
+4. Style with React Native Paper
+
+## Testing Strategy
+- Unit tests for services (business logic)
+- Integration tests for API endpoints
+- E2E tests for critical user flows (later)
+
+## Don't
+- Don't connect real services until user registers
+- Don't commit .env files
+- Don't use `any` type
+- Don't put business logic in controllers
+- Don't make API calls outside services/api.ts
+
+## Documentation
+- Document complex business logic
+- Add JSDoc comments for public APIs
+- Update README when adding major features
+- Keep TODO comments for stubbed services
+

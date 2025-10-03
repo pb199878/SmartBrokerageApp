@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailgunService } from '../../common/mailgun/mailgun.service';
 import { SupabaseService } from '../../common/supabase/supabase.service';
+import { MessageCategory } from '@prisma/client';
 
 @Injectable()
 export class EmailService {
@@ -23,11 +24,11 @@ export class EmailService {
     console.log(payload);
 
     // 1. Verify webhook signature
-    const { signature } = payload;
+    const { timestamp, token, signature } = payload;
     const isValid = this.mailgunService.verifyWebhookSignature(
-      signature.timestamp,
-      signature.token,
-      signature.signature,
+      timestamp,
+      token,
+      signature,
     );
 
     if (!isValid) {
@@ -62,52 +63,55 @@ export class EmailService {
 
     // 2. Find or create sender
     // TODO: Implement when DB is connected
-    // const sender = await this.prisma.sender.upsert({
-    //   where: { email: email.from },
-    //   update: {},
-    //   create: {
-    //     email: email.from,
-    //     name: this.extractNameFromEmail(email.from),
-    //     domain: this.extractDomain(email.from),
-    //   },
-    // });
+    const sender = await this.prisma.sender.upsert({
+      where: { email: email.from },
+      update: {},
+      create: {
+        email: email.from,
+        name: this.extractNameFromEmail(email.from),
+        domain: this.extractDomain(email.from),
+      },
+    });
 
     // 3. Find or create thread
     // TODO: Implement when DB is connected
-    // const thread = await this.prisma.thread.upsert({
-    //   where: { listingId_senderId_subject },
-    //   update: { lastMessageAt: new Date() },
-    //   create: {
-    //     listingId,
-    //     senderId: sender.id,
-    //     subject: email.subject,
-    //     category: this.classifyMessage(email.subject, email.bodyText),
-    //   },
-    // });
+    const thread = await this.prisma.thread.upsert({
+      where: { listingId_senderId: {
+        listingId: listingAlias,
+        senderId: sender.id,
+      } },
+      update: { lastMessageAt: new Date() },
+      create: {
+        listingId: listingAlias,
+        senderId: sender.id,
+        subject: email.subject,
+        category: this.classifyMessage(email.subject, email.bodyText),
+      },
+    });
 
     // 4. Store message
     // TODO: Implement when DB is connected
-    // await this.prisma.message.create({
-    //   data: {
-    //     threadId: thread.id,
-    //     senderId: sender.id,
-    //     senderEmail: email.from,
-    //     senderName: sender.name,
-    //     direction: 'INBOUND',
-    //     subject: email.subject,
-    //     bodyText: email.bodyText,
-    //     bodyHtml: email.bodyHtml,
-    //   },
-    // });
+    await this.prisma.message.create({
+      data: {
+        threadId: thread.id,
+        senderId: sender.id,
+        senderEmail: email.from,
+        senderName: sender.name,
+        direction: 'INBOUND',
+        subject: email.subject,
+        bodyText: email.bodyText,
+        bodyHtml: email.bodyHtml,
+      },
+    });
 
     // 5. Upload to Supabase Storage
     // TODO: Implement when Supabase is set up
-    // await this.supabaseService.uploadFile(
-    //   'emails',
-    //   `${listingId}/${messageId}.eml`,
-    //   rawEmailBuffer,
-    //   'message/rfc822',
-    // );
+    await this.supabaseService.uploadFile(
+      'emails',
+      `${listingAlias}/${thread.id}.eml`,
+      Buffer.from(email.bodyText),
+      'message/rfc822',
+    );
 
     // 6. Handle attachments
     // TODO: Implement attachment upload
@@ -121,7 +125,7 @@ export class EmailService {
   /**
    * Classify message based on content
    */
-  private classifyMessage(subject: string, body: string): string {
+  private classifyMessage(subject: string, body: string): MessageCategory {
     const combined = `${subject} ${body}`.toLowerCase();
     
     if (combined.includes('offer') || combined.includes('aps')) {

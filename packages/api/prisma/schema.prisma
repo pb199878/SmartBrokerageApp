@@ -62,6 +62,7 @@ model Thread {
   sender   Sender    @relation(fields: [senderId], references: [id])
   messages Message[]
 
+  @@unique([listingId, senderId])
   @@index([listingId])
   @@index([senderId])
   @@index([lastMessageAt])

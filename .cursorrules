@@ -101,6 +101,53 @@ Until external services are configured, keep stub implementations:
 3. Add API calls via React Query
 4. Style with React Native Paper
 
+## Troubleshooting
+
+### Prisma TypeScript Errors After Schema Changes
+
+**Problem:** After running `npm run prisma:generate` or `npm run prisma:migrate`, TypeScript shows errors like:
+- `Module '"@prisma/client"' has no exported member 'PrismaClient'`
+- `Property 'sender' does not exist on type 'PrismaService'`
+
+**Solution:** TypeScript's cache needs to be refreshed:
+1. **Primary fix:** Restart TypeScript Server
+   - Press `Cmd + Shift + P` (Mac) or `Ctrl + Shift + P` (Windows/Linux)
+   - Type: `TypeScript: Restart TS Server`
+   - Press Enter
+   
+2. **If that doesn't work:** Reload VS Code Window
+   - Press `Cmd + Shift + P` / `Ctrl + Shift + P`
+   - Type: `Developer: Reload Window`
+   - Press Enter
+
+3. **Last resort:** Regenerate Prisma Client in the API package
+   ```bash
+   cd packages/api
+   npx prisma generate
+   ```
+   Then restart TypeScript server (step 1)
+
+**Why this happens:** Prisma generates TypeScript types dynamically. VS Code's TypeScript server caches the old types and needs to be restarted to pick up the new generated types.
+
+### Expo Font Loading Errors
+
+**Problem:** Errors with `@expo/vector-icons` or font loading (e.g., `Ionicons` not rendering)
+
+**Solution:** Don't explicitly load icon fonts - they load automatically:
+```typescript
+// ❌ Don't do this
+const [fontsLoaded] = useFonts({
+  ...Ionicons.font,
+});
+
+// ✅ Do this instead
+const [fontsLoaded] = useFonts({
+  // Only add custom fonts here, not icon fonts
+});
+```
+
+Icon fonts from `@expo/vector-icons` are loaded automatically by the library.
+
 ## Testing Strategy
 - Unit tests for services (business logic)
 - Integration tests for API endpoints

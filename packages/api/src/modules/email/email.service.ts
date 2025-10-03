@@ -20,6 +20,7 @@ export class EmailService {
    */
   async processInboundEmail(payload: any) {
     console.log('📧 Processing inbound email...');
+    console.log(payload);
 
     // 1. Verify webhook signature
     const { signature } = payload;

@@ -22,15 +22,15 @@ export class MailgunService {
    */
   verifyWebhookSignature(timestamp: string, token: string, signature: string): boolean {
     // TODO: Implement when Mailgun is set up
-    // const encodedToken = crypto
-    //   .createHmac('sha256', this.webhookSigningKey)
-    //   .update(timestamp.concat(token))
-    //   .digest('hex');
+    const encodedToken = crypto
+      .createHmac('sha256', this.webhookSigningKey)
+      .update(timestamp.concat(token))
+      .digest('hex');
     
-    // return encodedToken === signature;
+    return encodedToken === signature;
     
-    console.log('[STUB] Verifying Mailgun webhook signature');
-    return true; // Accept all for local dev
+    // console.log('[STUB] Verifying Mailgun webhook signature');
+    // return true; // Accept all for local dev
   }
 
   /**
@@ -49,22 +49,22 @@ export class MailgunService {
     html?: string,
   ): Promise<void> {
     // TODO: Implement when Mailgun is set up
-    // const formData = require('form-data');
-    // const Mailgun = require('mailgun.js');
-    // const mailgun = new Mailgun(formData);
-    // const mg = mailgun.client({ username: 'api', key: this.apiKey });
+    const formData = require('form-data');
+    const Mailgun = require('mailgun.js');
+    const mailgun = new Mailgun(formData);
+    const mg = mailgun.client({ username: 'api', key: this.apiKey });
     
-    // await mg.messages.create(this.domain, {
-    //   from,
-    //   to,
-    //   subject,
-    //   text,
-    //   html,
-    // });
+    await mg.messages.create(this.domain, {
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
     
-    console.log(`[STUB] Sending email from ${from} to ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Body: ${text.substring(0, 100)}...`);
+    // console.log(`[STUB] Sending email from ${from} to ${to}`);
+    // console.log(`Subject: ${subject}`);
+    // console.log(`Body: ${text.substring(0, 100)}...`);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-// import { BullModule } from '@nestjs/bullmq'; // TODO: Uncomment when Redis is set up
+import { BullModule } from '@nestjs/bullmq'; // TODO: Uncomment when Redis is set up
 
 import { PrismaModule } from './common/prisma/prisma.module';
 import { MailgunModule } from './common/mailgun/mailgun.module';
@@ -19,12 +19,12 @@ import { EmailModule } from './modules/email/email.module';
     }),
 
     // TODO: Uncomment when Redis is available (Railway)
-    // BullModule.forRoot({
-    //   connection: {
-    //     host: process.env.REDIS_HOST || 'localhost',
-    //     port: parseInt(process.env.REDIS_PORT || '6379'),
-    //   },
-    // }),
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDISHOST || 'localhost',
+        port: parseInt(process.env.REDISPORT || '6379'),
+      },
+    }),
 
     // Common modules
     PrismaModule,

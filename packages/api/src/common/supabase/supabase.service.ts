@@ -1,22 +1,20 @@
 import { Injectable } from '@nestjs/common';
-// import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class SupabaseService {
-  // private supabase: SupabaseClient;
+  private supabase: SupabaseClient;
 
   constructor(private configService: ConfigService) {
     // TODO: Uncomment when Supabase is set up
-    // const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
-    // const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
     
-    // if (supabaseUrl && supabaseKey) {
-    //   this.supabase = createClient(supabaseUrl, supabaseKey);
-    //   console.log('✅ Supabase client initialized');
-    // }
-    
-    console.log('📦 Supabase Service initialized (STUBBED - set up when ready)');
+    if (supabaseUrl && supabaseKey) {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
+      console.log('✅ Supabase client initialized');
+    }
   }
 
   /**
@@ -33,15 +31,15 @@ export class SupabaseService {
     contentType: string,
   ): Promise<string> {
     // TODO: Implement when Supabase is set up
-    // const { data, error } = await this.supabase.storage
-    //   .from(bucket)
-    //   .upload(path, file, { contentType });
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .upload(path, file, { contentType });
     
-    // if (error) throw error;
-    // return data.path;
+    if (error) throw error;
+    return data.path;
     
-    console.log(`[STUB] Upload file to ${bucket}/${path}`);
-    return `stubbed-s3-key-${Date.now()}`;
+    // console.log(`[STUB] Upload file to ${bucket}/${path}`);
+    // return `stubbed-s3-key-${Date.now()}`;
   }
 
   /**
@@ -56,15 +54,15 @@ export class SupabaseService {
     expiresIn = 3600,
   ): Promise<string> {
     // TODO: Implement when Supabase is set up
-    // const { data, error } = await this.supabase.storage
-    //   .from(bucket)
-    //   .createSignedUrl(path, expiresIn);
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .createSignedUrl(path, expiresIn);
     
-    // if (error) throw error;
-    // return data.signedUrl;
+    if (error) throw error;
+    return data.signedUrl;
     
-    console.log(`[STUB] Get signed URL for ${bucket}/${path}`);
-    return `https://stubbed-url.com/${bucket}/${path}`;
+    // console.log(`[STUB] Get signed URL for ${bucket}/${path}`);
+    // return `https://stubbed-url.com/${bucket}/${path}`;
   }
 
   /**
@@ -72,10 +70,10 @@ export class SupabaseService {
    */
   async deleteFile(bucket: string, path: string): Promise<void> {
     // TODO: Implement when Supabase is set up
-    // const { error } = await this.supabase.storage.from(bucket).remove([path]);
-    // if (error) throw error;
+    const { error } = await this.supabase.storage.from(bucket).remove([path]);
+    if (error) throw error;
     
-    console.log(`[STUB] Delete file ${bucket}/${path}`);
+    // console.log(`[STUB] Delete file ${bucket}/${path}`);
   }
 }
 

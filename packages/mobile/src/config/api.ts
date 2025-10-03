@@ -8,7 +8,7 @@
 
 export const API_BASE_URL = __DEV__
   ? 'http://localhost:3000' // Change to your computer's IP if testing on physical device
-  : 'https://your-api-url.railway.app'; // TODO: Update when deployed to Railway
+  : 'https://powerful-communication-production-c6e8.up.railway.app'; // TODO: Update when deployed to Railway
 
 export const API_ENDPOINTS = {
   listings: '/listings',

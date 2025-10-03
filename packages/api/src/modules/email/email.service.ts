@@ -89,7 +89,21 @@ export class EmailService {
       },
     });
 
-    // 4. Store message
+    // 4. Check for duplicate message before storing
+    const isDuplicate = await this.checkForDuplicateMessage({
+      senderEmail: email.from,
+      subject: email.subject,
+      bodyText: email.bodyText,
+      threadId: thread.id,
+      timestamp: email.timestamp,
+    });
+
+    if (isDuplicate) {
+      console.log('⚠️ Duplicate email detected - skipping message creation');
+      return; // Skip creating the message
+    }
+
+    // 5. Store message
     // TODO: Implement when DB is connected
     await this.prisma.message.create({
       data: {
@@ -104,7 +118,7 @@ export class EmailService {
       },
     });
 
-    // 5. Upload to Supabase Storage (OPTIONAL - for audit/compliance)
+    // 6. Upload to Supabase Storage (OPTIONAL - for audit/compliance)
     // Use message ID to keep history of all emails, not just latest per thread
     // NOTE: This stores raw .eml files for legal/debugging purposes
     // You can disable this for MVP if you only need Postgres storage
@@ -116,13 +130,45 @@ export class EmailService {
     //   'message/rfc822',
     // );
 
-    // 6. Handle attachments
+    // 7. Handle attachments
     // TODO: Implement attachment upload
 
-    // 7. Send push notification
+    // 8. Send push notification
     // TODO: Implement when Expo Push is set up
 
     console.log('[STUB] Email processed successfully');
+  }
+
+  /**
+   * Check if a message with the same characteristics already exists
+   * Prevents duplicate email ingestion from webhook retries
+   */
+  private async checkForDuplicateMessage(params: {
+    senderEmail: string;
+    subject: string;
+    bodyText: string;
+    threadId: string;
+    timestamp: Date;
+  }): Promise<boolean> {
+    // Look for existing message with same sender, subject, body, thread, and timestamp (within 1 minute)
+    // We use a 1-minute window to account for minor timestamp variations
+    const oneMinuteBefore = new Date(params.timestamp.getTime() - 60 * 1000);
+    const oneMinuteAfter = new Date(params.timestamp.getTime() + 60 * 1000);
+
+    const existingMessage = await this.prisma.message.findFirst({
+      where: {
+        threadId: params.threadId,
+        senderEmail: params.senderEmail,
+        subject: params.subject,
+        bodyText: params.bodyText,
+        createdAt: {
+          gte: oneMinuteBefore,
+          lte: oneMinuteAfter,
+        },
+      },
+    });
+
+    return existingMessage !== null;
   }
 
   /**

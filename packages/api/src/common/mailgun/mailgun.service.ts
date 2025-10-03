@@ -72,15 +72,14 @@ export class MailgunService {
    * Extracts important fields
    */
   parseIncomingEmail(payload: any) {
-    const eventData = payload['event-data'];
+    const eventData = payload;
     
     return {
       from: eventData.sender,
       to: eventData.recipient,
       subject: eventData.subject,
       bodyText: eventData['body-plain'],
-      bodyHtml: eventData['body-html'],
-      messageId: eventData['message-id'],
+      messageId: eventData['Message-Id'],
       timestamp: new Date(eventData.timestamp * 1000),
       attachments: eventData.attachments || [],
     };

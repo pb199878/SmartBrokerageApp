@@ -104,14 +104,17 @@ export class EmailService {
       },
     });
 
-    // 5. Upload to Supabase Storage
+    // 5. Upload to Supabase Storage (OPTIONAL - for audit/compliance)
+    // Use message ID to keep history of all emails, not just latest per thread
+    // NOTE: This stores raw .eml files for legal/debugging purposes
+    // You can disable this for MVP if you only need Postgres storage
     // TODO: Implement when Supabase is set up
-    await this.supabaseService.uploadFile(
-      'emails',
-      `${listingAlias}/${thread.id}.eml`,
-      Buffer.from(email.bodyText),
-      'message/rfc822',
-    );
+    // await this.supabaseService.uploadFile(
+    //   'emails',
+    //   `${listingAlias}/${thread.id}/${message.id}.eml`,
+    //   Buffer.from(email.bodyText),
+    //   'message/rfc822',
+    // );
 
     // 6. Handle attachments
     // TODO: Implement attachment upload

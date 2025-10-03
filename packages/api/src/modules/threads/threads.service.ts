@@ -7,93 +7,73 @@ export class ThreadsService {
   constructor(private prisma: PrismaService) {}
 
   async getThread(id: string): Promise<MessageThread | null> {
-    // TODO: Implement when DB is connected
-    // return this.prisma.thread.findUnique({
-    //   where: { id },
-    //   include: {
-    //     sender: true,
-    //     listing: {
-    //       select: { id: true, address: true },
-    //     },
-    //   },
-    // });
+    const thread = await this.prisma.thread.findUnique({
+      where: { id },
+      include: {
+        sender: true,
+        listing: {
+          select: { id: true, address: true },
+        },
+      },
+    });
 
-    // Stubbed mock data
+    if (!thread) {
+      return null;
+    }
+
     return {
-      id,
-      listingId: '1',
-      senderId: 'sender-1',
-      senderEmail: 'john.agent@remax.com',
-      senderName: 'John Smith',
-      subject: 'Interested in viewing the property',
-      category: MessageCategory.SHOWING,
-      lastMessageAt: new Date(),
-      unreadCount: 2,
-      isVerified: true,
+      id: thread.id,
+      listingId: thread.listingId,
+      senderId: thread.senderId,
+      senderEmail: thread.sender.email,
+      senderName: thread.sender.name,
+      subject: thread.subject,
+      category: thread.category as MessageCategory,
+      lastMessageAt: thread.lastMessageAt,
+      unreadCount: thread.unreadCount,
+      isVerified: thread.sender.isVerified,
       listing: {
-        id: '1',
-        address: '123 Main Street',
+        id: thread.listing.id,
+        address: thread.listing.address,
       },
     };
   }
 
   async getThreadMessages(threadId: string) {
-    // TODO: Implement when DB is connected
-    // return this.prisma.message.findMany({
-    //   where: { threadId },
-    //   include: {
-    //     attachments: true,
-    //   },
-    //   orderBy: { createdAt: 'asc' },
-    // });
-
-    // Stubbed mock messages
-    return [
-      {
-        id: 'msg-1',
-        threadId,
-        senderId: 'sender-1',
-        senderEmail: 'john.agent@remax.com',
-        senderName: 'John Smith',
-        direction: 'INBOUND',
-        subject: 'Interested in viewing the property',
-        bodyText: 'Hi, I have a buyer interested in viewing your property at 123 Main Street. Would you be available this Saturday at 2 PM?',
-        bodyHtml: null,
-        rawEmailS3Key: null,
-        createdAt: new Date(Date.now() - 86400000), // 1 day ago
-        attachments: [],
+    return this.prisma.message.findMany({
+      where: { threadId },
+      include: {
+        attachments: true,
       },
-      {
-        id: 'msg-2',
-        threadId,
-        senderId: null,
-        senderEmail: 'l-abc123@inbox.yourapp.ca',
-        senderName: 'Seller',
-        direction: 'OUTBOUND',
-        subject: 'Re: Interested in viewing the property',
-        bodyText: 'Yes, Saturday at 2 PM works great. Please have your buyer bring their pre-approval letter.',
-        bodyHtml: null,
-        rawEmailS3Key: null,
-        createdAt: new Date(Date.now() - 43200000), // 12 hours ago
-        attachments: [],
-      },
-    ];
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async markThreadAsRead(threadId: string) {
-    // TODO: Implement when DB is connected
-    // return this.prisma.thread.update({
-    //   where: { id: threadId },
-    //   data: { unreadCount: 0 },
-    // });
-
-    console.log(`[STUB] Marking thread ${threadId} as read`);
+    await this.prisma.thread.update({
+      where: { id: threadId },
+      data: { unreadCount: 0 },
+    });
+    
     return { success: true };
   }
 
   async getThreadsBySender(senderEmail: string) {
-    // TODO: Implement
-    return [];
+    const sender = await this.prisma.sender.findUnique({
+      where: { email: senderEmail },
+    });
+
+    if (!sender) {
+      return [];
+    }
+
+    return this.prisma.thread.findMany({
+      where: { senderId: sender.id },
+      include: {
+        listing: true,
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
   }
 }
 

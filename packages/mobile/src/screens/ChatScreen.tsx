@@ -29,13 +29,52 @@ export default function ChatScreen() {
   const { data: messages, isLoading } = useQuery({
     queryKey: ['messages', threadId],
     queryFn: () => threadsApi.getMessages(threadId),
+    refetchInterval: 3000, // Poll every 3 seconds for new messages
+    refetchIntervalInBackground: false, // Only poll when app is active
   });
 
   const sendMutation = useMutation({
     mutationFn: messagesApi.send,
+    onMutate: async (newMessage) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['messages', threadId] });
+
+      // Snapshot previous value
+      const previousMessages = queryClient.getQueryData<Message[]>(['messages', threadId]);
+
+      // Optimistically update to show message immediately
+      if (previousMessages) {
+        const optimisticMessage: Message = {
+          id: `temp-${Date.now()}`,
+          threadId,
+          senderId: null,
+          senderEmail: 'seller@temp.com',
+          senderName: 'Seller',
+          direction: MessageDirection.OUTBOUND,
+          subject: 'Re: Message',
+          bodyText: newMessage.text,
+          bodyHtml: null,
+          rawEmailS3Key: null,
+          createdAt: new Date(),
+        };
+        queryClient.setQueryData<Message[]>(
+          ['messages', threadId],
+          [...previousMessages, optimisticMessage]
+        );
+      }
+
+      return { previousMessages };
+    },
     onSuccess: () => {
+      // Refetch to get the real message from server
       queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
       setMessageText('');
+    },
+    onError: (err, newMessage, context) => {
+      // Rollback on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(['messages', threadId], context.previousMessages);
+      }
     },
   });
 

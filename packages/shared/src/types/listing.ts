@@ -1,8 +1,8 @@
 export enum ListingStatus {
-  ACTIVE = 'active',
-  SOLD = 'sold',
-  EXPIRED = 'expired',
-  DRAFT = 'draft',
+  ACTIVE = 'ACTIVE',
+  SOLD = 'SOLD',
+  EXPIRED = 'EXPIRED',
+  DRAFT = 'DRAFT',
 }
 
 export interface Listing {

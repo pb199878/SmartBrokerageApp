@@ -1,12 +1,12 @@
 export enum MessageDirection {
-  INBOUND = 'inbound',   // From buyer agent to seller
-  OUTBOUND = 'outbound', // From seller to buyer agent
+  INBOUND = 'INBOUND',   // From buyer agent to seller
+  OUTBOUND = 'OUTBOUND', // From seller to buyer agent
 }
 
 export enum MessageCategory {
-  OFFER = 'offer',
-  SHOWING = 'showing',
-  GENERAL = 'general',
+  OFFER = 'OFFER',
+  SHOWING = 'SHOWING',
+  GENERAL = 'GENERAL',
 }
 
 export interface Message {

@@ -37,7 +37,7 @@ export class MessagesService {
     // 3. Send email via Mailgun
     try {
       await this.mailgunService.sendEmail(
-        `${thread.listing.emailAlias}@inbox.yourapp.ca`,
+        `${thread.listing.emailAlias}`,
         thread.sender.email,
         `Re: ${thread.subject}`,
         dto.text,

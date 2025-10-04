@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import Mailgun from 'mailgun.js';
+import FormData from 'form-data';
 
 @Injectable()
 export class MailgunService {
@@ -49,9 +51,7 @@ export class MailgunService {
     html?: string,
   ): Promise<void> {
     // TODO: Implement when Mailgun is set up
-    const formData = require('form-data');
-    const Mailgun = require('mailgun.js');
-    const mailgun = new Mailgun(formData);
+    const mailgun = new Mailgun(FormData);
     const mg = mailgun.client({ username: 'api', key: this.apiKey });
     
     await mg.messages.create(this.domain, {

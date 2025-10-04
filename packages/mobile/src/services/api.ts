@@ -5,6 +5,7 @@ import type {
   MessageThread,
   Message,
   SendMessageDto,
+  ListingSender,
 } from '@smart-brokerage/shared';
 
 const api = axios.create({
@@ -49,10 +50,16 @@ export const listingsApi = {
     return response.data;
   },
 
-  getThreads: async (listingId: string): Promise<MessageThread[]> => {
-    const response = await api.get(`/listings/${listingId}/threads`);
-    return response.data;
+  getSenders: async (listingId: string): Promise<ListingSender[]> => {
+    const response = await api.get(`/listings/${listingId}/senders`);
+    return response.data.data;
   },
+
+  // UPDATED: Get threads for a specific sender on a listing
+  getThreadsBySender: async (listingId: string, senderId: string): Promise<MessageThread[]> => {
+    const response = await api.get(`/listings/${listingId}/senders/${senderId}/threads`);
+    return response.data.data;
+  }
 };
 
 // ============================================================

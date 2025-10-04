@@ -8,40 +8,18 @@ import type { RouteProp } from '@react-navigation/native';
 import { listingsApi } from '../services/api';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Threads'>;
-type ThreadsRouteProp = RouteProp<RootStackParamList, 'Threads'>;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Senders'>;
+type SendersRouteProp = RouteProp<RootStackParamList, 'Senders'>;
 
-export default function ThreadsScreen() {
+export default function SendersScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const route = useRoute<ThreadsRouteProp>();
-  const { listingId, senderId } = route.params;
+  const route = useRoute<SendersRouteProp>();
+  const { listingId } = route.params;
 
-  const { data: threads, isLoading } = useQuery({
-    queryKey: ['threads', listingId],
-    queryFn: () => listingsApi.getThreadsBySender(listingId, senderId),
+  const { data: senders, isLoading } = useQuery({
+    queryKey: ['senders', listingId],
+    queryFn: () => listingsApi.getSenders(listingId),
   });
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'OFFER':
-        return '📄';
-      case 'SHOWING':
-        return '📅';
-      default:
-        return '✉️';
-    }
-  };
-
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'OFFER':
-        return '#4CAF50';
-      case 'SHOWING':
-        return '#2196F3';
-      default:
-        return '#999';
-    }
-  };
 
   const formatTime = (date: Date) => {
     const now = new Date();
@@ -63,7 +41,7 @@ export default function ThreadsScreen() {
     );
   }
 
-  if (!threads || threads.length === 0) {
+  if (!senders || senders.length === 0) {
     return (
       <View style={styles.centered}>
         <Text style={styles.emptyIcon}>📧</Text>
@@ -78,24 +56,26 @@ export default function ThreadsScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={threads}
+        data={senders}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() =>
-              navigation.navigate('Chat', {
-                threadId: item.id,
-                senderName: item.senderName,
+              navigation.navigate('Threads', {
+                listingId: listingId as string,
+                senderId: item.id,
+                senderName: item.name,
+                address: route.params.address,
               })
             }
           >
             <Card style={styles.card}>
               <Card.Content>
-                <View style={styles.threadHeader}>
+                <View style={styles.senderHeader}>
                   <View style={styles.avatarContainer}>
                     <Avatar.Text
-                      size={48}
-                      label={item.senderName.substring(0, 2).toUpperCase()}
+                      size={56}
+                      label={item.name.substring(0, 2).toUpperCase()}
                       style={{ backgroundColor: '#2196F3' }}
                     />
                     {item.isVerified && (
@@ -103,35 +83,43 @@ export default function ThreadsScreen() {
                     )}
                   </View>
 
-                  <View style={styles.threadContent}>
-                    <View style={styles.threadTitleRow}>
-                      <Text variant="titleMedium" style={styles.senderName}>
-                        {item.senderName}
+                  <View style={styles.senderContent}>
+                    <View style={styles.senderTitleRow}>
+                      <Text variant="titleLarge" style={styles.senderName}>
+                        {item.name}
+                      </Text>
+                      {item.unreadCount > 0 && (
+                        <Badge style={styles.unreadBadge}>{item.unreadCount}</Badge>
+                      )}
+                    </View>
+
+                    {item.brokerage && (
+                      <Text variant="bodyMedium" style={styles.brokerage}>
+                        {item.brokerage}
+                      </Text>
+                    )}
+
+                    <Text variant="bodySmall" style={styles.email}>
+                      {item.email}
+                    </Text>
+
+                    <View style={styles.metaRow}>
+                      <Text variant="bodySmall" style={styles.threadCount}>
+                        {item.threadCount} {item.threadCount === 1 ? 'thread' : 'threads'}
                       </Text>
                       <Text variant="bodySmall" style={styles.time}>
                         {formatTime(item.lastMessageAt)}
                       </Text>
                     </View>
 
-                    <View style={styles.subjectRow}>
-                      <Text style={styles.categoryIcon}>{getCategoryIcon(item.category)}</Text>
-                      <Text
-                        variant="bodyMedium"
-                        style={styles.subject}
-                        numberOfLines={1}
-                      >
-                        {item.subject}
-                      </Text>
-                    </View>
-
-                    <Text variant="bodySmall" style={styles.email}>
-                      {item.senderEmail}
+                    <Text 
+                      variant="bodyMedium" 
+                      style={styles.lastSubject}
+                      numberOfLines={1}
+                    >
+                      Last: {item.lastSubject}
                     </Text>
                   </View>
-
-                  {item.unreadCount > 0 && (
-                    <Badge style={styles.unreadBadge}>{item.unreadCount}</Badge>
-                  )}
                 </View>
               </Card.Content>
             </Card>
@@ -172,7 +160,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginVertical: 8,
   },
-  threadHeader: {
+  senderHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
@@ -181,23 +169,23 @@ const styles = StyleSheet.create({
   },
   verifiedBadge: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
+    bottom: 0,
+    right: 0,
     backgroundColor: '#4CAF50',
     color: 'white',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 'bold',
-    borderRadius: 8,
-    width: 16,
-    height: 16,
+    borderRadius: 10,
+    width: 20,
+    height: 20,
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 20,
   },
-  threadContent: {
+  senderContent: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 16,
   },
-  threadTitleRow: {
+  senderTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -207,29 +195,33 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
   },
-  time: {
-    color: '#999',
-    marginLeft: 8,
-  },
-  subjectRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  categoryIcon: {
-    marginRight: 6,
-    fontSize: 14,
-  },
-  subject: {
-    flex: 1,
-    color: '#333',
+  brokerage: {
+    color: '#666',
+    marginBottom: 2,
   },
   email: {
     color: '#999',
+    marginBottom: 8,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  threadCount: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  time: {
+    color: '#999',
+  },
+  lastSubject: {
+    color: '#333',
+    fontStyle: 'italic',
   },
   unreadBadge: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#F44336',
     marginLeft: 8,
   },
 });
-

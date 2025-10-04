@@ -34,7 +34,7 @@ export default function ListingsScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => 
-              navigation.navigate('Threads', { 
+              navigation.navigate('Senders', { 
                 listingId: item.id, 
                 address: item.address 
               })

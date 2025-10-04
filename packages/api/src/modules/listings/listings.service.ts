@@ -32,9 +32,56 @@ export class ListingsService {
     return listing as Listing;
   }
 
-  async getListingThreads(listingId: string) {
+  async getListingSenders(listingId: string) {
     const threads = await this.prisma.thread.findMany({
       where: { listingId },
+      include: {
+        sender: true,
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    // Group threads by sender
+    const senderMap = new Map();
+    
+    for (const thread of threads) {
+      const senderId = thread.senderId;
+      
+      if (!senderMap.has(senderId)) {
+        senderMap.set(senderId, {
+          id: thread.sender.id,
+          email: thread.sender.email,
+          name: thread.sender.name,
+          isVerified: thread.sender.isVerified,
+          brokerage: thread.sender.brokerage,
+          threadCount: 0,
+          unreadCount: 0,
+          lastMessageAt: thread.lastMessageAt,
+          lastSubject: thread.subject,
+        });
+      }
+
+      const senderData = senderMap.get(senderId);
+      senderData.threadCount++;
+      senderData.unreadCount += thread.unreadCount;
+      
+      // Update if this thread is more recent
+      if (thread.lastMessageAt > senderData.lastMessageAt) {
+        senderData.lastMessageAt = thread.lastMessageAt;
+        senderData.lastSubject = thread.subject;
+      }
+    }
+
+    return Array.from(senderMap.values())
+      .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+  }
+
+  async getListingThreadsBySender(listingId: string, senderId: string) {
+    const threads = await this.prisma.thread.findMany({
+      where: { 
+        listingId,
+        senderId,
+      },
       include: {
         sender: true,
         _count: {
@@ -44,7 +91,6 @@ export class ListingsService {
       orderBy: { lastMessageAt: 'desc' },
     });
 
-    // Map to match expected format
     return threads.map(thread => ({
       id: thread.id,
       listingId: thread.listingId,
@@ -56,6 +102,7 @@ export class ListingsService {
       lastMessageAt: thread.lastMessageAt,
       unreadCount: thread.unreadCount,
       isVerified: thread.sender.isVerified,
+      messageCount: thread._count.messages,
     }));
   }
 

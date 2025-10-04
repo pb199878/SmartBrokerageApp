@@ -16,3 +16,14 @@ export interface VerifySenderDto {
   name: string;
 }
 
+export interface ListingSender {
+  id: string;
+  email: string;
+  name: string;
+  isVerified: boolean;
+  brokerage: string | null;
+  threadCount: number; // Number of threads with this sender
+  unreadCount: number; // Total unread messages across all threads
+  lastMessageAt: Date;
+  lastSubject: string; // Subject of most recent thread
+}

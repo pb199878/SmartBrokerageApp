@@ -5,11 +5,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import ListingsScreen from '../screens/ListingsScreen';
 import ThreadsScreen from '../screens/ThreadsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import SendersScreen from '@/screens/SendersScreen';
 
 export type RootStackParamList = {
   Listings: undefined;
-  Threads: { listingId: string; address: string };
+  Threads: { listingId: string; senderId: string; senderName: string; address: string };
   Chat: { threadId: string; senderName: string };
+  Senders: { listingId: string; address: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -22,6 +24,14 @@ export default function AppNavigator() {
           name="Listings" 
           component={ListingsScreen}
           options={{ title: 'My Listings' }}
+        />
+        <Stack.Screen 
+          name="Senders" 
+          component={SendersScreen}
+          options={({ route }) => ({ 
+            title: route.params.address,
+            headerBackTitle: 'Listings',
+          })}
         />
         <Stack.Screen 
           name="Threads" 

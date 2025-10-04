@@ -51,6 +51,7 @@ model Thread {
   listingId     String
   senderId      String // FK to Sender
   subject       String
+  emailThreadId String? // For grouping email replies (In-Reply-To header)
   category      MessageCategory @default(GENERAL)
   status        ThreadStatus    @default(ACTIVE)
   lastMessageAt DateTime        @default(now())
@@ -62,10 +63,10 @@ model Thread {
   sender   Sender    @relation(fields: [senderId], references: [id])
   messages Message[]
 
-  @@unique([listingId, senderId])
   @@index([listingId])
   @@index([senderId])
   @@index([lastMessageAt])
+  @@index([emailThreadId])
   @@map("threads")
 }
 

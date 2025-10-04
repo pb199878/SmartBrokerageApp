@@ -75,19 +75,59 @@ export class EmailService {
 
     // 3. Find or create thread
     // TODO: Implement when DB is connected
-    const thread = await this.prisma.thread.upsert({
-      where: { listingId_senderId: {
-        listingId: listingAlias,
-        senderId: sender.id,
-      } },
-      update: { lastMessageAt: new Date() },
-      create: {
-        listingId: listingAlias,
-        senderId: sender.id,
-        subject: email.subject,
-        category: this.classifyMessage(email.subject, email.bodyText),
-      },
-    });
+    // const thread = await this.prisma.thread.upsert({
+    //   where: { listingId_senderId: {
+    //     listingId: listingAlias,
+    //     senderId: sender.id,
+    //   } },
+    //   update: { lastMessageAt: new Date() },
+    //   create: {
+    //     listingId: listingAlias,
+    //     senderId: sender.id,
+    //     subject: email.subject,
+    //     category: this.classifyMessage(email.subject, email.bodyText),
+    //   },
+    // });
+
+    const emailThreadId = this.extractEmailThreadId(email);
+    let thread;
+
+    if (emailThreadId) {
+      // This is a reply - find existing thread by emailThreadId
+      thread = await this.prisma.thread.findFirst({
+        where: {
+          listingId: listingAlias,
+          senderId: sender.id,
+          emailThreadId,
+        },
+      });
+    }
+
+    // If no thread found (new conversation or couldn't match reply)
+    if (!thread) {
+      // Create a new thread
+      thread = await this.prisma.thread.create({
+        data: {
+          listingId: listingAlias,
+          senderId: sender.id,
+          subject: email.subject,
+          emailThreadId: emailThreadId || undefined,
+          category: this.classifyMessage(email.subject, email.bodyText),
+          lastMessageAt: new Date(),
+        },
+      });
+      console.log(`✨ Created new thread: ${thread.id} (${email.subject})`);
+    } else {
+      // Update existing thread
+      thread = await this.prisma.thread.update({
+        where: { id: thread.id },
+        data: {
+          lastMessageAt: new Date(),
+          unreadCount: { increment: 1 },
+        },
+      });
+      console.log(`📝 Updated existing thread: ${thread.id}`);
+    }
 
     // 4. Check for duplicate message before storing
     const isDuplicate = await this.checkForDuplicateMessage({
@@ -194,6 +234,25 @@ export class EmailService {
 
   private extractDomain(email: string): string {
     return email.split('@')[1] || '';
+  }
+
+  private extractEmailThreadId(email: any): string | null {
+    // Check In-Reply-To header first (most specific)
+    if (email.inReplyTo) {
+      return email.inReplyTo;
+    }
+
+    // Fall back to first reference in References header
+    if (email.references && email.references.length > 0) {
+      return email.references[0];
+    }
+
+    // If no threading headers, use Message-ID to start a new thread
+    if (email.messageId) {
+      return email.messageId;
+    }
+
+    return null;
   }
 }
 

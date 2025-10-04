@@ -22,9 +22,8 @@ export class MessagesService {
     }
 
      // 2. Generate a unique Message-ID for this outgoing email
-     const timestamp = Date.now();
      const domain = process.env.MAILGUN_DOMAIN || 'inbox.yourapp.ca';
-     const messageId = `<${timestamp}.${thread.listing.emailAlias}@${domain}>`;
+     const messageId = this.generateMessageId(domain);
      console.log('📧 Generated Message-ID:', messageId);
  
      // 3. Build full References chain from all messages in thread
@@ -63,6 +62,7 @@ export class MessagesService {
         `Re: ${thread.subject}`,
         dto.text,
         undefined,
+        thread.emailThreadId,
         referencesChain,
         messageId, 
       );
@@ -79,6 +79,17 @@ export class MessagesService {
     });
 
     return message as Message;
+  }
+
+  private generateMessageId(domain: string = "myapp.ca"): string {
+    // Unix timestamp in ms
+    const timestamp = Date.now();
+  
+    // 10-char random string (base36 for compactness)
+    const randomPart = Math.random().toString(36).slice(2, 12);
+  
+    // Build RFC-compliant Message-ID
+    return `<${timestamp}.${randomPart}@${domain}>`;
   }
 }
 

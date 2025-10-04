@@ -74,32 +74,46 @@ export class EmailService {
     });
 
     const emailThreadId = this.extractEmailThreadId(email);
-    const allMessageIds = email.references 
-      ? this.parseReferences(email.references)
-      : [];
+    const allMessageIds: string[] = [];
     
+    if (email.references) {
+      allMessageIds.push(...this.parseReferences(email.references));
+    }
     if (email.inReplyTo) {
       allMessageIds.push(email.inReplyTo);
     }
-    if (email.messageId) {
-      allMessageIds.push(email.messageId);
-    }
-    let thread;
+    
+    console.log('🔍 Looking for thread with Message-IDs:', allMessageIds);
 
+    let existingMessage = null;
+    
+    // If this email has threading headers, search for existing thread
+    // by finding any message that matches any of these Message-IDs
     if (allMessageIds.length > 0) {
-      thread = await this.prisma.thread.findFirst({
+      existingMessage = await this.prisma.message.findFirst({
         where: {
-          listingId: listingAlias,
-          senderId: sender.id,
-          emailThreadId: {
-            in: allMessageIds, // Match if our stored emailThreadId is ANY of these Message-IDs
+          messageId: {
+            in: allMessageIds,
+          },
+          thread: {
+            listingId: listingAlias,
+            senderId: sender.id,
+          },
+        },
+        include: {
+          thread: {
+            include: {
+              listing: true,
+              sender: true,
+            },
           },
         },
       });
     }
-
+    
+    let thread = null;
     // If no thread found (new conversation or couldn't match reply)
-    if (!thread) {
+    if (!existingMessage) {
       // Create a new thread
       thread = await this.prisma.thread.create({
         data: {
@@ -118,7 +132,7 @@ export class EmailService {
         senderEmail: email.from,
         subject: email.subject,
         bodyText: email.bodyText,
-        threadId: thread.id,
+        threadId: existingMessage.threadId,
         timestamp: email.timestamp,
       });
 
@@ -128,13 +142,13 @@ export class EmailService {
       }
       // Update existing thread
       thread = await this.prisma.thread.update({
-        where: { id: thread.id },
+        where: { id: existingMessage.threadId },
         data: {
           lastMessageAt: new Date(),
           unreadCount: { increment: 1 },
         },
       });
-      console.log(`📝 Updated existing thread: ${thread.id}`);
+      console.log(`📝 Updated existing thread: ${existingMessage.threadId}`);
     }
 
     // 5. Store message
@@ -149,6 +163,7 @@ export class EmailService {
         subject: email.subject,
         bodyText: email.bodyText,
         bodyHtml: email.bodyHtml,
+        messageId: email.messageId,
       },
     });
 

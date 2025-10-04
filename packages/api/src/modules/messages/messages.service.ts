@@ -21,7 +21,27 @@ export class MessagesService {
       throw new Error(`Thread ${dto.threadId} not found`);
     }
 
-    // 2. Create message in DB
+     // 2. Generate a unique Message-ID for this outgoing email
+     const timestamp = Date.now();
+     const domain = process.env.MAILGUN_DOMAIN || 'inbox.yourapp.ca';
+     const messageId = `<${timestamp}.${thread.listing.emailAlias}@${domain}>`;
+     console.log('📧 Generated Message-ID:', messageId);
+ 
+     // 3. Build full References chain from all messages in thread
+     const threadMessages = await this.prisma.message.findMany({
+       where: { threadId: dto.threadId },
+       select: { messageId: true },
+       orderBy: { createdAt: 'asc' },
+     });
+ 
+     const referencesChain = threadMessages
+       .map(m => m.messageId)
+       .filter(Boolean)
+       .join(' ');
+ 
+     console.log('📎 References chain:', referencesChain);
+
+    // 4. Create message in DB
     const message = await this.prisma.message.create({
       data: {
         threadId: dto.threadId,
@@ -31,6 +51,7 @@ export class MessagesService {
         direction: MessageDirection.OUTBOUND,
         subject: `Re: ${thread.subject}`,
         bodyText: dto.text,
+        messageId: messageId
       },
     });
 
@@ -42,8 +63,8 @@ export class MessagesService {
         `Re: ${thread.subject}`,
         dto.text,
         undefined,
-        thread.emailThreadId,       // In-Reply-To: original Message-ID
-        thread.emailThreadId, 
+        referencesChain,
+        messageId, 
       );
       console.log(`✅ Sent threaded reply to ${thread.sender.email}`);
     } catch (error) {

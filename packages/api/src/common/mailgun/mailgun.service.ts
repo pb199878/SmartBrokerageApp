@@ -51,6 +51,7 @@ export class MailgunService {
     html?: string,
     inReplyTo?: string,
     references?: string,
+    messageId?: string,
   ): Promise<void> {
     // TODO: Implement when Mailgun is set up
     const mailgun = new Mailgun(FormData);
@@ -70,6 +71,9 @@ export class MailgunService {
     }
     if (references) {
       messageData['h:References'] = references;
+    }
+    if (messageId) {
+      messageData['h:Message-Id'] = messageId;
     }
     
     await mg.messages.create(this.domain, messageData);

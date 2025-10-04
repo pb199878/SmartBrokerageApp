@@ -95,6 +95,7 @@ model Message {
   subject       String
   bodyText      String           @db.Text
   bodyHtml      String?          @db.Text
+  messageId     String?
   rawEmailS3Key String? // S3 key for raw .eml file
   createdAt     DateTime         @default(now())
 

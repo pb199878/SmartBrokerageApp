@@ -26,7 +26,7 @@ export class MessagesService {
       data: {
         threadId: dto.threadId,
         senderId: null, // Seller is sending
-        senderEmail: thread.listing.emailAlias + '@inbox.yourapp.ca',
+        senderEmail: thread.listing.emailAlias,
         senderName: 'Seller',
         direction: MessageDirection.OUTBOUND,
         subject: `Re: ${thread.subject}`,
@@ -41,7 +41,11 @@ export class MessagesService {
         thread.sender.email,
         `Re: ${thread.subject}`,
         dto.text,
+        undefined,
+        thread.emailThreadId,       // In-Reply-To: original Message-ID
+        thread.emailThreadId, 
       );
+      console.log(`✅ Sent threaded reply to ${thread.sender.email}`);
     } catch (error) {
       console.error('Failed to send email via Mailgun:', error);
       // Continue even if email fails - message is saved in DB

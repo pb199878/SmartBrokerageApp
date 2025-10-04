@@ -49,18 +49,30 @@ export class MailgunService {
     subject: string,
     text: string,
     html?: string,
+    inReplyTo?: string,
+    references?: string,
   ): Promise<void> {
     // TODO: Implement when Mailgun is set up
     const mailgun = new Mailgun(FormData);
     const mg = mailgun.client({ username: 'api', key: this.apiKey });
-    
-    await mg.messages.create(this.domain, {
+
+    const messageData: any = {
       from,
       to,
       subject,
       text,
       html,
-    });
+    };
+
+    // Add threading headers if this is a reply
+    if (inReplyTo) {
+      messageData['h:In-Reply-To'] = inReplyTo;
+    }
+    if (references) {
+      messageData['h:References'] = references;
+    }
+    
+    await mg.messages.create(this.domain, messageData);
     
     // console.log(`[STUB] Sending email from ${from} to ${to}`);
     // console.log(`Subject: ${subject}`);
@@ -80,6 +92,8 @@ export class MailgunService {
       subject: eventData.subject,
       bodyText: eventData['body-plain'],
       messageId: eventData['Message-Id'],
+      inReplyTo: eventData['In-Reply-To'] || null,
+      references: eventData['References'] || null,
       timestamp: new Date(eventData.timestamp * 1000),
       attachments: eventData.attachments || [],
     };

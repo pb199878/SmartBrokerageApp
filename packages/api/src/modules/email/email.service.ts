@@ -74,15 +74,26 @@ export class EmailService {
     });
 
     const emailThreadId = this.extractEmailThreadId(email);
+    const allMessageIds = email.references 
+      ? this.parseReferences(email.references)
+      : [];
+    
+    if (email.inReplyTo) {
+      allMessageIds.push(email.inReplyTo);
+    }
+    if (email.messageId) {
+      allMessageIds.push(email.messageId);
+    }
     let thread;
 
-    if (emailThreadId) {
-      // This is a reply - find existing thread by emailThreadId
+    if (allMessageIds.length > 0) {
       thread = await this.prisma.thread.findFirst({
         where: {
           listingId: listingAlias,
           senderId: sender.id,
-          emailThreadId,
+          emailThreadId: {
+            in: allMessageIds, // Match if our stored emailThreadId is ANY of these Message-IDs
+          },
         },
       });
     }
@@ -220,14 +231,15 @@ export class EmailService {
   }
 
   private extractEmailThreadId(email: any): string | null {
-    // Check In-Reply-To header first (most specific)
-    if (email.inReplyTo) {
-      return email.inReplyTo;
+    if (email.references) {
+      const rootMessageId = this.parseReferences(email.references)[0];
+      if (rootMessageId) {
+        return rootMessageId;
+      }
     }
 
-    // Fall back to first reference in References header
-    if (email.references && email.references.length > 0) {
-      return email.references[0];
+    if (email.inReplyTo) {
+      return email.inReplyTo;
     }
 
     // If no threading headers, use Message-ID to start a new thread
@@ -236,6 +248,15 @@ export class EmailService {
     }
 
     return null;
+    
+  }
+
+  private parseReferences(references: string): string[] {
+    if (!references) return [];
+    
+    // Match all <...> patterns
+    const matches = references.match(/<[^>]+>/g);
+    return matches || [];
   }
 }
 

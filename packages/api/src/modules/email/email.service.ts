@@ -73,22 +73,6 @@ export class EmailService {
       },
     });
 
-    // 3. Find or create thread
-    // TODO: Implement when DB is connected
-    // const thread = await this.prisma.thread.upsert({
-    //   where: { listingId_senderId: {
-    //     listingId: listingAlias,
-    //     senderId: sender.id,
-    //   } },
-    //   update: { lastMessageAt: new Date() },
-    //   create: {
-    //     listingId: listingAlias,
-    //     senderId: sender.id,
-    //     subject: email.subject,
-    //     category: this.classifyMessage(email.subject, email.bodyText),
-    //   },
-    // });
-
     const emailThreadId = this.extractEmailThreadId(email);
     let thread;
 
@@ -118,6 +102,19 @@ export class EmailService {
       });
       console.log(`✨ Created new thread: ${thread.id} (${email.subject})`);
     } else {
+      // 4. Check for duplicate message before storing
+      const isDuplicate = await this.checkForDuplicateMessage({
+        senderEmail: email.from,
+        subject: email.subject,
+        bodyText: email.bodyText,
+        threadId: thread.id,
+        timestamp: email.timestamp,
+      });
+
+      if (isDuplicate) {
+        console.log('⚠️ Duplicate email detected - skipping message creation');
+        return; // Skip creating the message
+      }
       // Update existing thread
       thread = await this.prisma.thread.update({
         where: { id: thread.id },
@@ -127,20 +124,6 @@ export class EmailService {
         },
       });
       console.log(`📝 Updated existing thread: ${thread.id}`);
-    }
-
-    // 4. Check for duplicate message before storing
-    const isDuplicate = await this.checkForDuplicateMessage({
-      senderEmail: email.from,
-      subject: email.subject,
-      bodyText: email.bodyText,
-      threadId: thread.id,
-      timestamp: email.timestamp,
-    });
-
-    if (isDuplicate) {
-      console.log('⚠️ Duplicate email detected - skipping message creation');
-      return; // Skip creating the message
     }
 
     // 5. Store message

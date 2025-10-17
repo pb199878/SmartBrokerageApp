@@ -90,11 +90,15 @@ export class MailgunService {
   parseIncomingEmail(payload: any) {
     const eventData = payload;
     
+    // Use 'stripped-text' which removes quoted replies automatically
+    // Falls back to 'body-plain' if stripped-text is not available
+    const bodyText = eventData['stripped-text'] || eventData['body-plain'];
+    
     return {
       from: eventData.sender,
       to: eventData.recipient,
       subject: eventData.subject,
-      bodyText: eventData['body-plain'],
+      bodyText: bodyText,
       messageId: eventData['Message-Id'],
       inReplyTo: eventData['In-Reply-To'] || null,
       references: eventData['References'] || null,

@@ -75,11 +75,42 @@ export default function ThreadsScreen() {
     );
   }
 
+  // Get sender info from first thread (all threads have same sender)
+  const senderInfo = threads[0];
+
+  const renderContactHeader = () => (
+    <Card style={styles.contactCard}>
+      <Card.Content>
+        <View style={styles.contactHeader}>
+          <View style={styles.avatarContainer}>
+            <Avatar.Text
+              size={56}
+              label={senderInfo.senderName.substring(0, 2).toUpperCase()}
+              style={{ backgroundColor: '#2196F3' }}
+            />
+            {senderInfo.isVerified && (
+              <Text style={styles.verifiedBadge}>✓</Text>
+            )}
+          </View>
+          <View style={styles.contactInfo}>
+            <Text variant="titleLarge" style={styles.contactName}>
+              {senderInfo.senderName}
+            </Text>
+            <Text variant="bodyMedium" style={styles.contactEmail}>
+              {senderInfo.senderEmail}
+            </Text>
+          </View>
+        </View>
+      </Card.Content>
+    </Card>
+  );
+
   return (
     <View style={styles.container}>
       <FlatList
         data={threads}
         keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderContactHeader}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() =>
@@ -92,46 +123,28 @@ export default function ThreadsScreen() {
             <Card style={styles.card}>
               <Card.Content>
                 <View style={styles.threadHeader}>
-                  <View style={styles.avatarContainer}>
-                    <Avatar.Text
-                      size={48}
-                      label={item.senderName.substring(0, 2).toUpperCase()}
-                      style={{ backgroundColor: '#2196F3' }}
-                    />
-                    {item.isVerified && (
-                      <Text style={styles.verifiedBadge}>✓</Text>
-                    )}
-                  </View>
-
+                  <Text style={styles.categoryIcon}>
+                    {getCategoryIcon(item.category)}
+                  </Text>
+                  
                   <View style={styles.threadContent}>
                     <View style={styles.threadTitleRow}>
-                      <Text variant="titleMedium" style={styles.senderName}>
-                        {item.senderName}
-                      </Text>
-                      <Text variant="bodySmall" style={styles.time}>
-                        {formatTime(item.lastMessageAt)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.subjectRow}>
-                      <Text style={styles.categoryIcon}>{getCategoryIcon(item.category)}</Text>
-                      <Text
-                        variant="bodyMedium"
-                        style={styles.subject}
+                      <Text 
+                        variant="titleMedium" 
+                        style={styles.subjectTitle}
                         numberOfLines={1}
                       >
                         {item.subject}
                       </Text>
+                      {item.unreadCount > 0 && (
+                        <Badge style={styles.unreadBadge}>{item.unreadCount}</Badge>
+                      )}
                     </View>
 
-                    <Text variant="bodySmall" style={styles.email}>
-                      {item.senderEmail}
+                    <Text variant="bodySmall" style={styles.time}>
+                      Last message {formatTime(item.lastMessageAt)}
                     </Text>
                   </View>
-
-                  {item.unreadCount > 0 && (
-                    <Badge style={styles.unreadBadge}>{item.unreadCount}</Badge>
-                  )}
                 </View>
               </Card.Content>
             </Card>
@@ -168,13 +181,36 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  contactCard: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+  },
+  contactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  contactInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  contactName: {
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  contactEmail: {
+    color: '#666',
+  },
   card: {
     marginHorizontal: 16,
     marginVertical: 8,
   },
   threadHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   avatarContainer: {
     position: 'relative',
@@ -188,10 +224,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     borderRadius: 8,
-    width: 16,
-    height: 16,
+    width: 18,
+    height: 18,
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 18,
   },
   threadContent: {
     flex: 1,
@@ -203,29 +239,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
-  senderName: {
+  subjectTitle: {
     fontWeight: 'bold',
+    color: '#333',
     flex: 1,
   },
   time: {
     color: '#999',
-    marginLeft: 8,
-  },
-  subjectRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
   },
   categoryIcon: {
-    marginRight: 6,
-    fontSize: 14,
-  },
-  subject: {
-    flex: 1,
-    color: '#333',
-  },
-  email: {
-    color: '#999',
+    fontSize: 24,
+    marginRight: 4,
   },
   unreadBadge: {
     backgroundColor: '#2196F3',

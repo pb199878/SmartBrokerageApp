@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailgunService } from '../../common/mailgun/mailgun.service';
-import { SendMessageDto, Message, MessageDirection } from '@smart-brokerage/shared';
+import { SendMessageDto, Message, MessageDirection, MessageStatus } from '@smart-brokerage/shared';
 
 @Injectable()
 export class MessagesService {
@@ -43,7 +43,7 @@ export class MessagesService {
  
      console.log('📎 References chain:', referencesChain);
 
-    // 4. Create message in DB
+    // 4. Create message in DB with PENDING status
     const message = await this.prisma.message.create({
       data: {
         threadId: dto.threadId,
@@ -53,11 +53,12 @@ export class MessagesService {
         direction: MessageDirection.OUTBOUND,
         subject: `Re: ${thread.subject}`,
         bodyText: dto.text,
-        messageId: messageId
+        messageId: messageId,
+        status: MessageStatus.PENDING,
       },
     });
 
-    // 3. Send email via Mailgun
+    // 5. Send email via Mailgun and update status
     try {
       await this.mailgunService.sendEmail(
         `${thread.listing.emailAlias}@${domain}`,
@@ -70,18 +71,32 @@ export class MessagesService {
         messageId, 
       );
       console.log(`✅ Sent threaded reply to ${thread.sender.email}`);
+      
+      // Update status to SENT on success and update thread lastMessageAt
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: { status: MessageStatus.SENT },
+      });
+      
+      await this.prisma.thread.update({
+        where: { id: dto.threadId },
+        data: { lastMessageAt: new Date() },
+      });
+      
+      return { ...message, status: MessageStatus.SENT } as Message;
     } catch (error) {
       console.error('Failed to send email via Mailgun:', error);
-      // Continue even if email fails - message is saved in DB
+      
+      // Update status to FAILED on error
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: { status: MessageStatus.FAILED },
+      });
+      
+      // Return message with FAILED status so user can see it
+      return { ...message, status: MessageStatus.FAILED } as Message;
     }
 
-    // 4. Update thread lastMessageAt
-    await this.prisma.thread.update({
-      where: { id: dto.threadId },
-      data: { lastMessageAt: new Date() },
-    });
-
-    return message as Message;
   }
 
   private generateMessageId(domain: string = "myapp.ca"): string {

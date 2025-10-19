@@ -9,6 +9,13 @@ export enum MessageCategory {
   GENERAL = 'GENERAL',
 }
 
+export enum MessageStatus {
+  PENDING = 'PENDING',     // Message created but not yet sent
+  SENT = 'SENT',           // Successfully sent via email
+  FAILED = 'FAILED',       // Failed to send via email
+  DELIVERED = 'DELIVERED', // Confirmed delivery (future: webhook from Mailgun)
+}
+
 export interface Message {
   id: string;
   threadId: string;
@@ -19,6 +26,7 @@ export interface Message {
   subject: string;
   bodyText: string;
   bodyHtml: string | null;
+  status: MessageStatus;
   rawEmailS3Key: string | null;
   createdAt: Date;
   attachments?: Attachment[];

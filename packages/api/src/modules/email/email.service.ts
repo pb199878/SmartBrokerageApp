@@ -170,7 +170,7 @@ export class EmailService {
     }
 
     // 5. Store message
-    // TODO: Implement when DB is connected
+    // Inbound messages are already delivered to us, so status is SENT
     await this.prisma.message.create({
       data: {
         threadId: thread.id,
@@ -182,6 +182,7 @@ export class EmailService {
         bodyText: email.bodyText,
         bodyHtml: email.bodyHtml,
         messageId: email.messageId,
+        status: 'SENT', // Inbound messages are already delivered
       },
     });
 

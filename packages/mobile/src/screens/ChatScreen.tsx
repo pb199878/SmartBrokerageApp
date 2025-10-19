@@ -15,7 +15,7 @@ import type { RouteProp } from '@react-navigation/native';
 import { threadsApi, messagesApi } from '../services/api';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { Message } from '@smart-brokerage/shared';
-import { MessageDirection } from '@smart-brokerage/shared';
+import { MessageDirection, MessageStatus } from '@smart-brokerage/shared';
 
 type ChatRouteProp = RouteProp<RootStackParamList, 'Chat'>;
 
@@ -54,6 +54,7 @@ export default function ChatScreen() {
           subject: 'Re: Message',
           bodyText: newMessage.text,
           bodyHtml: null,
+          status: MessageStatus.PENDING,
           rawEmailS3Key: null,
           createdAt: new Date(),
         };
@@ -102,6 +103,34 @@ export default function ChatScreen() {
     });
   };
 
+  const getStatusIcon = (status: MessageStatus) => {
+    switch (status) {
+      case MessageStatus.SENT:
+      case MessageStatus.DELIVERED:
+        return '✓'; // Checkmark for sent/delivered
+      case MessageStatus.PENDING:
+        return '○'; // Circle for pending
+      case MessageStatus.FAILED:
+        return '⚠'; // Warning for failed
+      default:
+        return '';
+    }
+  };
+
+  const getStatusColor = (status: MessageStatus) => {
+    switch (status) {
+      case MessageStatus.SENT:
+      case MessageStatus.DELIVERED:
+        return '#4CAF50'; // Green
+      case MessageStatus.PENDING:
+        return '#FFC107'; // Amber
+      case MessageStatus.FAILED:
+        return '#F44336'; // Red
+      default:
+        return '#999';
+    }
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isOutbound = item.direction === MessageDirection.OUTBOUND;
 
@@ -117,13 +146,31 @@ export default function ChatScreen() {
             {item.senderName}
           </Text>
         )}
-        <Text style={styles.messageText}>{item.bodyText}</Text>
-        <Text variant="labelSmall" style={styles.messageTime}>
-          {new Date(item.createdAt).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
+        <Text style={[
+          styles.messageText,
+          isOutbound && styles.outboundText,
+        ]}>
+          {item.bodyText}
         </Text>
+        <View style={styles.messageFooter}>
+          <Text variant="labelSmall" style={[
+            styles.messageTime,
+            isOutbound && styles.outboundText,
+          ]}>
+            {new Date(item.createdAt).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+          {isOutbound && (
+            <Text style={[
+              styles.statusIcon,
+              { color: getStatusColor(item.status) }
+            ]}>
+              {getStatusIcon(item.status)}
+            </Text>
+          )}
+        </View>
       </View>
     );
   };
@@ -221,10 +268,22 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#000',
   },
-  messageTime: {
+  outboundText: {
+    color: '#fff',
+  },
+  messageFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
     marginTop: 4,
+    gap: 4,
+  },
+  messageTime: {
     color: '#999',
-    textAlign: 'right',
+  },
+  statusIcon: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   inputContainer: {
     flexDirection: 'row',

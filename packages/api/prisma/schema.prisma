@@ -99,6 +99,7 @@ model Message {
   bodyText      String           @db.Text
   bodyHtml      String?          @db.Text
   messageId     String?
+  status        MessageStatus    @default(PENDING)
   rawEmailS3Key String? // S3 key for raw .eml file
   createdAt     DateTime         @default(now())
 
@@ -109,12 +110,20 @@ model Message {
   @@index([threadId])
   @@index([senderId])
   @@index([createdAt])
+  @@index([status])
   @@map("messages")
 }
 
 enum MessageDirection {
   INBOUND  // From buyer agent to seller
   OUTBOUND // From seller to buyer agent
+}
+
+enum MessageStatus {
+  PENDING  // Message created but not yet sent
+  SENT     // Successfully sent via email
+  FAILED   // Failed to send via email
+  DELIVERED // Confirmed delivery (future: webhook from Mailgun)
 }
 
 // ============================================================

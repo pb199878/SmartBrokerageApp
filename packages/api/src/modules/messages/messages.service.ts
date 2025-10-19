@@ -22,7 +22,10 @@ export class MessagesService {
     }
 
      // 2. Generate a unique Message-ID for this outgoing email
-     const domain = process.env.MAILGUN_DOMAIN || 'inbox.yourapp.ca';
+     const domain = process.env.MAILGUN_DOMAIN || '';
+     if (!domain) {
+      console.warn('⚠️  MAILGUN_DOMAIN is not set. Check your .env file.');
+     }
      const messageId = this.generateMessageId(domain);
      console.log('📧 Generated Message-ID:', messageId);
  

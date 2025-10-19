@@ -11,11 +11,16 @@ export class MailgunService {
   private webhookSigningKey: string;
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('MAILGUN_API_KEY') || 'stubbed-key';
-    this.domain = this.configService.get<string>('MAILGUN_DOMAIN') || 'inbox.yourapp.ca';
-    this.webhookSigningKey = this.configService.get<string>('MAILGUN_WEBHOOK_SIGNING_KEY') || 'stubbed-signing-key';
+    this.apiKey = this.configService.get<string>('MAILGUN_API_KEY') || '';
+    this.domain = this.configService.get<string>('MAILGUN_DOMAIN') || '';
+    this.webhookSigningKey = this.configService.get<string>('MAILGUN_WEBHOOK_SIGNING_KEY') || '';
     
-    console.log('📦 Mailgun Service initialized (STUBBED - set up when ready)');
+    if (!this.apiKey || !this.domain || !this.webhookSigningKey) {
+      console.warn('⚠️  Mailgun credentials not configured. Check your .env file.');
+      console.warn('   Copy env.example to .env and add your Mailgun credentials.');
+    } else {
+      console.log('📦 Mailgun Service initialized');
+    }
   }
 
   /**

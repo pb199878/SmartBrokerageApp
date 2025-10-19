@@ -16,6 +16,9 @@ import { EmailModule } from './modules/email/email.module';
     // Load environment variables
     ConfigModule.forRoot({
       isGlobal: true,
+      // In monorepo, explicitly point to .env file
+      // This works whether .env is in root or symlinked in packages/api
+      envFilePath: ['.env', '../../.env'],
     }),
 
     // TODO: Uncomment when Redis is available (Railway)

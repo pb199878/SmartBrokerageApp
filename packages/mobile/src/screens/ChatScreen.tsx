@@ -83,6 +83,16 @@ export default function ChatScreen() {
     threadsApi.markAsRead(threadId);
   }, [threadId]);
 
+  // Scroll to bottom when messages are first loaded
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      // Use setTimeout to ensure the FlatList has rendered
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 100);
+    }
+  }, [messages?.length && messages[0]?.id]); // Only trigger on initial load
+
   const handleSend = () => {
     if (!messageText.trim()) return;
 

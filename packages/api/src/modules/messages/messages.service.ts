@@ -48,7 +48,7 @@ export class MessagesService {
       data: {
         threadId: dto.threadId,
         senderId: null, // Seller is sending
-        senderEmail: thread.listing.emailAlias,
+        senderEmail: `${thread.listing.emailAlias}@${domain}`,
         senderName: 'Seller',
         direction: MessageDirection.OUTBOUND,
         subject: `Re: ${thread.subject}`,
@@ -60,7 +60,7 @@ export class MessagesService {
     // 3. Send email via Mailgun
     try {
       await this.mailgunService.sendEmail(
-        `${thread.listing.emailAlias}`,
+        `${thread.listing.emailAlias}@${domain}`,
         thread.sender.email,
         `Re: ${thread.subject}`,
         dto.text,

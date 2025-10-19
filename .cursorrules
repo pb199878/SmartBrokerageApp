@@ -67,19 +67,107 @@ Always return consistent shapes:
 - Handle loading, error, and success states
 - Cache aggressively for read operations
 
+## Email Threading & Message-IDs
+
+### Critical Rules for Email Threading
+
+**Message-ID Format (RFC 5322 Compliant)**
+- Always generate RFC 5322 compliant Message-IDs: `<unique-id@resolvable-domain.com>`
+- Use a RESOLVABLE domain (e.g., your Mailgun domain), NOT fake domains like `yourapp.ca`
+- Format: `<${timestamp}.${listingAlias}@${mailgunDomain}>`
+- Gmail and other providers will OVERRIDE invalid Message-IDs with their own (e.g., `SMTPIN_ADDED_BROKEN@mx.google.com`)
+- If Message-IDs are invalid, email threading will break completely
+
+**Database Message-ID Tracking**
+- Store the `messageId` field on EVERY message (both inbound and outbound)
+- Add index on `messageId` field for fast lookups
+- For inbound: Extract from Mailgun webhook payload `eventData['Message-Id']`
+- For outbound: Generate before sending, store in DB, pass to Mailgun with `h:Message-Id` header
+
+**Thread Matching Strategy**
+1. Extract ALL Message-IDs from incoming email:
+   - Parse `References` header (full conversation chain)
+   - Include `In-Reply-To` header (direct parent)
+2. Search for ANY existing message with matching Message-ID
+3. Filter by `listingId` + `senderId` to prevent cross-thread contamination
+4. If match found, add to existing thread; otherwise create new thread
+
+**Email Headers for Threading**
+When sending outbound emails, always include:
+- `h:Message-Id`: Our generated Message-ID (so Gmail doesn't override it)
+- `h:In-Reply-To`: The root `thread.emailThreadId` (original buyer's Message-ID)
+- `h:References`: Full chain of all Message-IDs in the thread (space-separated)
+
+**References Chain Building**
+```typescript
+// Get all messages in thread
+const threadMessages = await prisma.message.findMany({
+  where: { threadId },
+  select: { messageId: true },
+  orderBy: { createdAt: 'asc' },
+});
+
+const referencesChain = threadMessages
+  .map(m => m.messageId)
+  .filter(Boolean)
+  .join(' ');
+```
+
+**Common Pitfalls**
+- ❌ Using unresolvable domains → Gmail overrides Message-ID
+- ❌ Not storing Message-IDs in DB → Can't match replies
+- ❌ Wrong parameter order in sendEmail() → Headers missing/incorrect
+- ❌ Only storing one emailThreadId on thread → Fails after 2-3 replies
+- ❌ Not parsing References header → Can't match later replies
+
+**Debugging Email Threading Issues**
+If replies create new threads instead of continuing conversation:
+1. Check if outbound messages have `messageId` stored in DB
+2. Check if Mailgun actually used your Message-ID (not Gmail's override)
+3. Log all Message-IDs from incoming email's References/In-Reply-To
+4. Verify domain in Message-ID is resolvable via DNS
+5. Check parameter order matches: `sendEmail(from, to, subject, text, html, inReplyTo, references, messageId)`
+
 ## Stubbed Services
 Until external services are configured, keep stub implementations:
 - PrismaService: Log DB operations, return mock data
 - SupabaseService: Log storage operations, return fake URLs
 - MailgunService: Log email sends, don't actually send
 
+## Database Seeding
+
+### Sample Listings
+The database seed creates two listings with fixed email aliases for testing:
+- **Listing 1**: `l-abc123@inbox.yourapp.ca` (123 Main Street, Toronto)
+- **Listing 2**: `l-xyz789@inbox.yourapp.ca` (456 Oak Avenue, Ottawa)
+
+### Running Seeds
+```bash
+npm run prisma:seed
+```
+
+Seeds are located in `packages/api/prisma/seed.ts` and include:
+- Two listings with unique email aliases
+- Sample buyer agent senders
+- Clear existing data before seeding (optional)
+
+### Email Alias Routing
+- Listing aliases (e.g., `l-abc123`) are used in email addresses
+- When processing incoming emails, ALWAYS:
+  1. Extract alias from recipient email
+  2. Look up listing by `emailAlias` field
+  3. Use the listing's UUID (NOT the alias) for thread/message creation
+- Never use the alias directly as a listing ID
+
 ## When Adding Features
 1. Update Prisma schema if needed
-2. Add types to packages/shared/src/types/
-3. Create/update NestJS module
-4. Add API client method in mobile/src/services/api.ts
-5. Create React Query hooks in mobile screens
-6. Update README with new endpoints
+2. Run `npm run prisma:generate` and restart TypeScript server
+3. Add types to packages/shared/src/types/
+4. Create/update NestJS module
+5. Add API client method in mobile/src/services/api.ts
+6. Create React Query hooks in mobile screens
+7. Update README with new endpoints
+8. Update seed script if new required data
 
 ## Common Tasks
 

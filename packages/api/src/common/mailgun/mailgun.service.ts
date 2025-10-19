@@ -23,16 +23,12 @@ export class MailgunService {
    * Ensures the request is actually from Mailgun
    */
   verifyWebhookSignature(timestamp: string, token: string, signature: string): boolean {
-    // TODO: Implement when Mailgun is set up
     const encodedToken = crypto
       .createHmac('sha256', this.webhookSigningKey)
       .update(timestamp.concat(token))
       .digest('hex');
     
     return encodedToken === signature;
-    
-    // console.log('[STUB] Verifying Mailgun webhook signature');
-    // return true; // Accept all for local dev
   }
 
   /**

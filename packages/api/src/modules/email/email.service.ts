@@ -23,7 +23,10 @@ export class EmailService {
     console.log('📧 Processing inbound email...');
     console.log(payload);
 
-    // 1. Verify webhook signature
+    // 1. Verify webhook signature (only in production)
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (isProduction) {
     const { timestamp, token, signature } = payload;
     const isValid = this.mailgunService.verifyWebhookSignature(
       timestamp,
@@ -34,6 +37,10 @@ export class EmailService {
     if (!isValid) {
       console.error('❌ Invalid webhook signature');
       return { error: 'Invalid signature' };
+      }
+      console.log('✅ Webhook signature verified');
+    } else {
+      console.log('⚠️  Skipping webhook signature verification (not in production)');
     }
 
     // 2. Parse email

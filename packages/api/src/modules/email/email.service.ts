@@ -27,16 +27,16 @@ export class EmailService {
     const isProduction = process.env.NODE_ENV === 'production';
     
     if (isProduction) {
-    const { timestamp, token, signature } = payload;
-    const isValid = this.mailgunService.verifyWebhookSignature(
-      timestamp,
-      token,
-      signature,
-    );
+      const { timestamp, token, signature } = payload;
+      const isValid = this.mailgunService.verifyWebhookSignature(
+        timestamp,
+        token,
+        signature,
+      );
 
-    if (!isValid) {
-      console.error('❌ Invalid webhook signature');
-      return { error: 'Invalid signature' };
+      if (!isValid) {
+        console.error('❌ Invalid webhook signature');
+        return { error: 'Invalid signature' };
       }
       console.log('✅ Webhook signature verified');
     } else {
@@ -63,13 +63,24 @@ export class EmailService {
    * TODO: Move to EmailProcessor when BullMQ is set up
    */
   private async processEmailDirectly(email: any) {
-    // 1. Extract listing ID from email alias
-    // Example: l-abc123@inbox.yourapp.ca -> abc123
+    // 1. Extract listing alias from email address
+    // Example: l-abc123@inbox.yourapp.ca -> l-abc123
     const listingAlias = email.to.split('@')[0]; // e.g., "l-abc123"
-    console.log(`Listing alias: ${listingAlias}`);
+    console.log(`📧 Listing alias: ${listingAlias}`);
 
-    // 2. Find or create sender
-    // TODO: Implement when DB is connected
+    // 2. Look up the actual listing by emailAlias
+    const listing = await this.prisma.listing.findUnique({
+      where: { emailAlias: listingAlias },
+    });
+
+    if (!listing) {
+      console.error(`❌ No listing found for alias: ${listingAlias}`);
+      throw new Error(`Invalid listing alias: ${listingAlias}`);
+    }
+
+    console.log(`✅ Found listing: ${listing.id} (${listing.address})`);
+
+    // 3. Find or create sender
     const sender = await this.prisma.sender.upsert({
       where: { email: email.from },
       update: {},
@@ -103,7 +114,7 @@ export class EmailService {
             in: allMessageIds,
           },
           thread: {
-            listingId: listingAlias,
+            listingId: listing.id, // Use actual listing UUID
             senderId: sender.id,
           },
         },
@@ -124,7 +135,7 @@ export class EmailService {
       // Create a new thread
       thread = await this.prisma.thread.create({
         data: {
-          listingId: listingAlias,
+          listingId: listing.id, // Use actual listing UUID
           senderId: sender.id,
           subject: email.subject,
           emailThreadId: emailThreadId || undefined,

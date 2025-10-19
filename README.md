@@ -140,8 +140,11 @@ createdb smart_brokerage
 # Generate Prisma client
 npm run prisma:generate
 
-# Run migrations (when DB is connected)
+# Run database migrations
 npm run prisma:migrate
+
+# Seed database with sample listings
+npm run prisma:seed
 
 # Open Prisma Studio (DB GUI)
 npm run prisma:studio
@@ -214,13 +217,36 @@ The mobile app is configured to hit `http://localhost:3000` by default.
 ### Webhooks
 - `POST /webhooks/mailgun` - Mailgun inbound email webhook
 
-## 📧 Email Flow (When Mailgun is Connected)
+## 📧 Email Routing & Listings
 
-1. Buyer agent emails: `l-abc123@inbox.yourapp.ca`
+### Listing Email Addresses
+
+After seeding the database, you'll have **two listings** with unique email addresses:
+
+| Listing | Address | Email Address |
+|---------|---------|---------------|
+| Listing 1 | 123 Main Street, Toronto | `l-abc123@inbox.yourapp.ca` |
+| Listing 2 | 456 Oak Avenue, Ottawa | `l-xyz789@inbox.yourapp.ca` |
+
+### How Email Routing Works
+
+1. **Buyer agent sends email** to a listing's email address (e.g., `l-abc123@inbox.yourapp.ca`)
+2. **Mailgun receives email** → POSTs to `/webhooks/mailgun`
+3. **API extracts listing alias** from recipient (`l-abc123`)
+4. **API looks up listing** by `emailAlias` in database
+5. **API creates/updates thread** using the listing's UUID (not the alias)
+6. **Message is stored** and linked to the correct listing
+7. **Seller sees message** in mobile app under the specific listing
+
+### Email Flow (When Mailgun is Connected)
+
+1. Buyer agent emails: `l-abc123@inbox.yourapp.ca` or `l-xyz789@inbox.yourapp.ca`
 2. Mailgun receives email → POSTs to `/webhooks/mailgun`
 3. API processes email:
+   - Extracts listing alias from recipient
+   - Looks up listing by emailAlias
    - Parses sender, subject, body, attachments
-   - Creates/updates thread
+   - Creates/updates thread using listing UUID
    - Stores message in DB
    - Uploads raw email to Supabase Storage
    - (TODO) Sends push notification to seller

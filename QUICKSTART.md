@@ -76,7 +76,8 @@ This opens Expo Dev Tools. Choose:
    - Go to [supabase.com](https://supabase.com)
    - Create project
    - Copy `DATABASE_URL` to `.env`
-   - Run: `npm run prisma:migrate`
+   - Run migrations: `npm run prisma:migrate`
+   - Seed database: `npm run prisma:seed`
 
 2. **Set up Mailgun** (15 min)
    - Go to [mailgun.com](https://mailgun.com)
@@ -152,19 +153,33 @@ npm run build
 
 ## 💡 Pro Tips
 
-1. **Use Prisma Studio** to view/edit database data:
+1. **Seed the database** with sample listings (when connected to Supabase):
+   ```bash
+   npm run prisma:seed
+   ```
+   This creates 2 listings with unique email addresses:
+   - `l-abc123@inbox.yourapp.ca` (123 Main Street, Toronto)
+   - `l-xyz789@inbox.yourapp.ca` (456 Oak Avenue, Ottawa)
+
+2. **Test email routing** (when database is seeded):
+   ```bash
+   ./test-email-routing.sh
+   ```
+   This sends test emails to both listings to verify routing works.
+
+3. **Use Prisma Studio** to view/edit database data:
    ```bash
    npm run prisma:studio
    ```
 
-2. **Test API endpoints** with curl:
+4. **Test API endpoints** with curl:
    ```bash
    curl http://localhost:3000/listings
    ```
 
-3. **Watch API logs** for debugging - all stubbed actions are logged
+5. **Watch API logs** for debugging - all stubbed actions are logged
 
-4. **Use React Query DevTools** (already configured) - shake device in Expo to open
+6. **Use React Query DevTools** (already configured) - shake device in Expo to open
 
 ## 📚 Learn More
 

@@ -57,6 +57,7 @@ model Thread {
   emailThreadId String? // For grouping email replies (In-Reply-To header)
   category      MessageCategory @default(GENERAL)
   status        ThreadStatus    @default(ACTIVE)
+  activeOfferId String? // Quick lookup for active offer in this thread
   lastMessageAt DateTime        @default(now())
   unreadCount   Int             @default(0)
   createdAt     DateTime        @default(now())
@@ -65,11 +66,13 @@ model Thread {
   listing  Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
   sender   Sender    @relation(fields: [senderId], references: [id])
   messages Message[]
+  offers   Offer[]
 
   @@index([listingId])
   @@index([senderId])
   @@index([lastMessageAt])
   @@index([emailThreadId])
+  @@index([activeOfferId])
   @@map("threads")
 }
 
@@ -84,33 +87,48 @@ enum MessageCategory {
   GENERAL
 }
 
+enum MessageSubCategory {
+  NEW_OFFER
+  UPDATED_OFFER
+  VIEWING_REQUEST
+  AMENDMENT
+  GENERAL
+}
+
 // ============================================================
 // MESSAGES
 // ============================================================
 
 model Message {
-  id            String           @id @default(uuid())
-  threadId      String
-  senderId      String? // null if from seller (outbound)
-  senderEmail   String
-  senderName    String
-  direction     MessageDirection
-  subject       String
-  bodyText      String           @db.Text
-  bodyHtml      String?          @db.Text
-  messageId     String?
-  status        MessageStatus    @default(PENDING)
-  rawEmailS3Key String? // S3 key for raw .eml file
-  createdAt     DateTime         @default(now())
+  id                        String              @id @default(uuid())
+  threadId                  String
+  senderId                  String? // null if from seller (outbound)
+  senderEmail               String
+  senderName                String
+  direction                 MessageDirection
+  subject                   String
+  bodyText                  String              @db.Text
+  bodyHtml                  String?             @db.Text
+  messageId                 String?
+  status                    MessageStatus       @default(PENDING)
+  rawEmailS3Key             String? // S3 key for raw .eml file
+  subCategory               MessageSubCategory? // Classified intent
+  classificationConfidence  Float? // 0-100 confidence score
+  classificationReasoning   String?             @db.Text // Why it was classified this way
+  offerId                   String? // Link to offer if this message contains/relates to an offer
+  createdAt                 DateTime            @default(now())
 
   thread      Thread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
   sender      Sender?      @relation(fields: [senderId], references: [id])
   attachments Attachment[]
+  offer       Offer?       @relation(fields: [offerId], references: [id])
 
   @@index([threadId])
   @@index([senderId])
   @@index([createdAt])
   @@index([status])
+  @@index([subCategory])
+  @@index([offerId])
   @@map("messages")
 }
 
@@ -131,19 +149,22 @@ enum MessageStatus {
 // ============================================================
 
 model Attachment {
-  id               String           @id @default(uuid())
-  messageId        String
-  filename         String
-  contentType      String
-  s3Key            String // Supabase Storage key
-  size             Int
-  virusScanStatus  VirusScanStatus  @default(PENDING)
-  virusScanResult  String?
-  createdAt        DateTime         @default(now())
+  id                 String            @id @default(uuid())
+  messageId          String
+  filename           String
+  contentType        String
+  s3Key              String // Supabase Storage key
+  size               Int
+  virusScanStatus    VirusScanStatus   @default(PENDING)
+  virusScanResult    String?
+  documentAnalysisId String? // Link to analysis if this is an analyzed document
+  createdAt          DateTime          @default(now())
 
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message          Message            @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  documentAnalysis DocumentAnalysis? @relation(fields: [documentAnalysisId], references: [id])
 
   @@index([messageId])
+  @@index([documentAnalysisId])
   @@map("attachments")
 }
 
@@ -177,5 +198,81 @@ model Sender {
   @@index([domain])
   @@index([isVerified])
   @@map("senders")
+}
+
+// ============================================================
+// DOCUMENT ANALYSIS
+// ============================================================
+
+model DocumentAnalysis {
+  id                String   @id @default(uuid())
+  attachmentId      String // Which attachment was analyzed
+  formType          String? // e.g., "Form 100 APS", "Form 120 Amendment"
+  oreaFormDetected  Boolean  @default(false)
+  relevanceScore    Float // 0-100, how relevant/important is this document
+  confidence        Float // 0-100, confidence in the analysis
+  extractedData     Json? // Structured data: {price, deposit, conditions, dates, etc}
+  textContent       String?  @db.Text // Extracted text from PDF
+  pageCount         Int?
+  createdAt         DateTime @default(now())
+
+  attachments Attachment[]
+
+  @@index([attachmentId])
+  @@index([oreaFormDetected])
+  @@index([relevanceScore])
+  @@map("document_analyses")
+}
+
+// ============================================================
+// OFFERS
+// ============================================================
+
+enum OfferStatus {
+  PENDING_REVIEW // Seller hasn't reviewed yet
+  AWAITING_SELLER_SIGNATURE // Seller accepted, waiting for signature
+  AWAITING_BUYER_SIGNATURE // Counter-offer sent, waiting for buyer signature
+  ACCEPTED // Fully signed and accepted
+  DECLINED // Seller declined
+  COUNTERED // Seller sent counter-offer
+  EXPIRED // Offer expired
+}
+
+model Offer {
+  id                          String      @id @default(uuid())
+  threadId                    String
+  messageId                   String // The message that contained this offer
+  status                      OfferStatus @default(PENDING_REVIEW)
+  
+  // Offer Details (extracted from documents)
+  price                       Float?
+  deposit                     Float?
+  closingDate                 DateTime?
+  conditions                  String?     @db.Text
+  expiryDate                  DateTime?
+  
+  // Document references
+  originalDocumentS3Key       String? // Original unsigned offer from buyer agent
+  signedDocumentS3Key         String? // Signed document after acceptance
+  counterOfferDocumentS3Key   String? // Counter-offer document if sent
+  
+  // Dropbox Sign tracking
+  hellosignSignatureRequestId String? // Dropbox Sign signature request ID
+  sellerSignedAt              DateTime?
+  buyerSignedAt               DateTime?
+  
+  // Metadata
+  declineReason               String?     @db.Text
+  createdAt                   DateTime    @default(now())
+  updatedAt                   DateTime    @updatedAt
+
+  thread   Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([threadId])
+  @@index([messageId])
+  @@index([status])
+  @@index([expiryDate])
+  @@map("offers")
 }
 

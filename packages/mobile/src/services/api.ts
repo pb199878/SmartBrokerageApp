@@ -91,6 +91,11 @@ export const messagesApi = {
     const response = await api.post('/messages', dto);
     return response.data;
   },
+
+  resend: async (messageId: string): Promise<Message> => {
+    const response = await api.post(`/messages/${messageId}/resend`);
+    return response.data;
+  },
 };
 
 export default api;

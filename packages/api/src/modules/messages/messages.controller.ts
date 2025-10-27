@@ -10,5 +10,10 @@ export class MessagesController {
   async sendMessage(@Body() dto: SendMessageDto) {
     return this.messagesService.sendMessage(dto);
   }
+
+  @Post(':id/resend')
+  async resendMessage(@Param('id') messageId: string) {
+    return this.messagesService.resendMessage(messageId);
+  }
 }
 

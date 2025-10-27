@@ -79,6 +79,37 @@ export default function ChatScreen() {
     },
   });
 
+  const resendMutation = useMutation({
+    mutationFn: messagesApi.resend,
+    onMutate: async (messageId: string) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['messages', threadId] });
+
+      // Snapshot previous value
+      const previousMessages = queryClient.getQueryData<Message[]>(['messages', threadId]);
+
+      // Optimistically update status to PENDING
+      if (previousMessages) {
+        const updatedMessages = previousMessages.map(msg =>
+          msg.id === messageId ? { ...msg, status: MessageStatus.PENDING } : msg
+        );
+        queryClient.setQueryData<Message[]>(['messages', threadId], updatedMessages);
+      }
+
+      return { previousMessages };
+    },
+    onSuccess: () => {
+      // Refetch to get the updated message from server
+      queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
+    },
+    onError: (err, messageId, context) => {
+      // Rollback on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(['messages', threadId], context.previousMessages);
+      }
+    },
+  });
+
   useEffect(() => {
     // Mark thread as read when opened
     threadsApi.markAsRead(threadId);
@@ -131,14 +162,21 @@ export default function ChatScreen() {
     }
   };
 
+  const handleResend = (messageId: string) => {
+    resendMutation.mutate(messageId);
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isOutbound = item.direction === MessageDirection.OUTBOUND;
+    const isFailed = item.status === MessageStatus.FAILED;
+    const isRetrying = resendMutation.isPending && resendMutation.variables === item.id;
 
     return (
       <View
         style={[
           styles.messageBubble,
           isOutbound ? styles.outboundBubble : styles.inboundBubble,
+          isFailed && styles.failedBubble,
         ]}
       >
         {!isOutbound && (
@@ -162,13 +200,30 @@ export default function ChatScreen() {
               minute: '2-digit',
             })}
           </Text>
-          {isOutbound && (
+          {isOutbound && !isRetrying && (
             <Text style={[
               styles.statusIcon,
               { color: getStatusColor(item.status) }
             ]}>
               {getStatusIcon(item.status)}
             </Text>
+          )}
+          {isRetrying && (
+            <View style={styles.retryingIndicator}>
+              <ActivityIndicator size="small" color="#FFC107" />
+              <Text style={styles.retryingText}>Sending...</Text>
+            </View>
+          )}
+          {isFailed && !isRetrying && (
+            <TouchableOpacity
+              style={styles.resendButton}
+              onPress={() => handleResend(item.id)}
+              disabled={resendMutation.isPending}
+            >
+              <Text style={styles.resendButtonText}>
+                Retry
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -258,6 +313,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2196F3',
     borderBottomRightRadius: 4,
   },
+  failedBubble: {
+    backgroundColor: '#FFCDD2', // Light red for failed messages
+  },
   senderName: {
     fontWeight: 'bold',
     marginBottom: 4,
@@ -284,6 +342,29 @@ const styles = StyleSheet.create({
   statusIcon: {
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  resendButton: {
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#F44336',
+    borderRadius: 12,
+  },
+  resendButtonText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  retryingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    gap: 4,
+  },
+  retryingText: {
+    color: '#FFC107',
+    fontSize: 11,
+    fontWeight: '600',
   },
   inputContainer: {
     flexDirection: 'row',

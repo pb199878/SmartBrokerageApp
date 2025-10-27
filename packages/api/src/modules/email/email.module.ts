@@ -3,9 +3,11 @@ import { Module } from '@nestjs/common';
 import { EmailController } from './email.controller';
 import { EmailService } from './email.service';
 // import { EmailProcessor } from './email.processor'; // TODO: Uncomment when BullMQ is set up
+import { AttachmentsModule } from '../attachments/attachments.module';
 
 @Module({
   imports: [
+    AttachmentsModule,
     // TODO: Uncomment when Redis is available
     // BullModule.registerQueue({
     //   name: 'email-processing',

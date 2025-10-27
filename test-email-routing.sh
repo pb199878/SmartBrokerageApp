@@ -67,12 +67,46 @@ curl -X POST "$API_URL/webhooks/mailgun" \
 
 echo ""
 echo ""
+echo "📧 Test 3: Email with attachment (OREA form)"
+echo "To: $LISTING1_EMAIL"
+echo "Subject: Offer Submission"
+echo ""
+
+curl -X POST "$API_URL/webhooks/mailgun" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"timestamp\": \"$(date +%s)\",
+    \"token\": \"test-token\",
+    \"signature\": \"test-signature\",
+    \"sender\": \"$SENDER_EMAIL\",
+    \"recipient\": \"$LISTING1_EMAIL\",
+    \"subject\": \"Offer Submission - 123 Main Street\",
+    \"body-plain\": \"Please find attached our client's offer for 123 Main Street.\",
+    \"stripped-text\": \"Please find attached our client's offer for 123 Main Street.\",
+    \"Message-Id\": \"<test-$(date +%s)-attachment@remax.com>\",
+    \"timestamp\": $(date +%s),
+    \"attachments\": [
+      {
+        \"filename\": \"APS_Form_100_123_Main_Street.pdf\",
+        \"content-type\": \"application/pdf\",
+        \"size\": 425000,
+        \"url\": \"https://storage.mailgun.net/v3/domains/mg.yourapp.ca/messages/test.pdf\"
+      }
+    ]
+  }"
+
+echo ""
+echo ""
 echo "✅ Tests complete!"
 echo ""
 echo "📊 To verify the results:"
 echo "  1. Check the API logs to see which listing IDs were used"
 echo "  2. Run: curl http://localhost:3000/listings | jq"
 echo "  3. Open Prisma Studio: npm run prisma:studio"
-echo "  4. Check the threads table - you should see 2 threads with different listingIds"
+echo "  4. Check the threads table - you should see 3 threads"
+echo "  5. Check attachments table - you should see 1 attachment"
+echo ""
+echo "🧪 For comprehensive attachment testing:"
+echo "  Run: ./test-email-routing-attachments.sh"
 echo ""
 

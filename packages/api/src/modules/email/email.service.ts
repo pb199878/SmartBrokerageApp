@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailgunService } from '../../common/mailgun/mailgun.service';
 import { SupabaseService } from '../../common/supabase/supabase.service';
+import { AttachmentsService } from '../attachments/attachments.service';
 import { MessageCategory } from '@prisma/client';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class EmailService {
     private prisma: PrismaService,
     private mailgunService: MailgunService,
     private supabaseService: SupabaseService,
+    private attachmentsService: AttachmentsService,
   ) {}
 
   /**
@@ -171,7 +173,7 @@ export class EmailService {
 
     // 5. Store message
     // Inbound messages are already delivered to us, so status is SENT
-    await this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         threadId: thread.id,
         senderId: sender.id,
@@ -186,7 +188,41 @@ export class EmailService {
       },
     });
 
-    // 6. Upload to Supabase Storage (OPTIONAL - for audit/compliance)
+    // 6. Handle attachments
+    if (email.attachments && email.attachments.length > 0) {
+      console.log(`📎 Found ${email.attachments.length} attachment(s)`);
+      
+      // Filter out irrelevant attachments BEFORE downloading (saves storage space)
+      const relevantAttachments = this.attachmentsService.filterRelevantAttachments(email.attachments);
+      
+      if (relevantAttachments.length === 0) {
+        console.log('⏭️  No relevant attachments to download');
+      } else {
+        console.log(`📥 Downloading ${relevantAttachments.length} relevant attachment(s)...`);
+        
+        // Prioritize attachments by importance
+        const prioritizedAttachments = this.attachmentsService.prioritizeAttachments(relevantAttachments);
+        
+        for (const attachment of prioritizedAttachments) {
+          try {
+            await this.attachmentsService.downloadAndStoreAttachment(
+              attachment.url, // Mailgun provides direct download URL
+              message.id,
+              listing.id,
+              thread.id,
+              attachment.filename,
+              attachment['content-type'] || attachment.contentType || 'application/octet-stream',
+              attachment.size || 0,
+            );
+          } catch (error) {
+            console.error(`Failed to download attachment ${attachment.filename}:`, error);
+            // Continue processing other attachments even if one fails
+          }
+        }
+      }
+    }
+
+    // 7. Upload raw email to Supabase Storage (OPTIONAL - for audit/compliance)
     // Use message ID to keep history of all emails, not just latest per thread
     // NOTE: This stores raw .eml files for legal/debugging purposes
     // You can disable this for MVP if you only need Postgres storage
@@ -198,13 +234,10 @@ export class EmailService {
     //   'message/rfc822',
     // );
 
-    // 7. Handle attachments
-    // TODO: Implement attachment upload
-
     // 8. Send push notification
     // TODO: Implement when Expo Push is set up
 
-    console.log('[STUB] Email processed successfully');
+    console.log('✅ Email processed successfully');
   }
 
   /**

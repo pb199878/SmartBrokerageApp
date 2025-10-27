@@ -10,6 +10,7 @@ import { ListingsModule } from './modules/listings/listings.module';
 import { ThreadsModule } from './modules/threads/threads.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { EmailModule } from './modules/email/email.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { EmailModule } from './modules/email/email.module';
     ThreadsModule,
     MessagesModule,
     EmailModule,
+    AttachmentsModule,
   ],
 })
 export class AppModule {}

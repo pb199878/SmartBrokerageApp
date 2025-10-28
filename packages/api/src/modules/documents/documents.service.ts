@@ -2,8 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SupabaseService } from '../../common/supabase/supabase.service';
 import axios from 'axios';
-// Use require for pdf-parse due to CommonJS/ESM compatibility issues
-const pdfParse = require('pdf-parse');
 
 interface OREAFormDetectionResult {
   isOREAForm: boolean;
@@ -55,8 +53,8 @@ export class DocumentsService {
       // Download PDF from Supabase
       const pdfBuffer = await this.downloadPDFFromSupabase(attachment.s3Key);
 
-      // Extract text from PDF
-      const pdfData = await pdfParse(pdfBuffer);
+      // Extract text from PDF using dynamic import
+      const pdfData = await this.extractPDFText(pdfBuffer);
       const textContent = pdfData.text;
       const pageCount = pdfData.numpages;
 
@@ -104,6 +102,21 @@ export class DocumentsService {
       return analysis;
     } catch (error) {
       console.error(`❌ Failed to analyze attachment ${attachmentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract text from PDF buffer
+   * Wrapped in a method to handle CommonJS/ESM compatibility
+   */
+  private async extractPDFText(buffer: Buffer): Promise<any> {
+    try {
+      // Dynamic require to handle pdf-parse CommonJS module
+      const pdfParse = require('pdf-parse');
+      return await pdfParse(buffer);
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
       throw error;
     }
   }

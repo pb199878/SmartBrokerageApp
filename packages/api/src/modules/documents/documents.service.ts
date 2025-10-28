@@ -112,15 +112,16 @@ export class DocumentsService {
    */
   private async extractPDFText(buffer: Buffer): Promise<any> {
     try {
-      // pdf-parse exports { PDFParse: function } not a direct function
+      // pdf-parse exports PDFParse as a class constructor
       const { PDFParse } = require('pdf-parse');
       
-      if (!PDFParse || typeof PDFParse !== 'function') {
-        throw new Error('PDFParse function not found in pdf-parse module');
+      if (!PDFParse) {
+        throw new Error('PDFParse class not found in pdf-parse module');
       }
       
-      // PDFParse returns a promise when called with a buffer
-      const data = await PDFParse(buffer);
+      // Instantiate PDFParse class and parse the buffer
+      const parser = new PDFParse(buffer);
+      const data = await parser.parse();
       return data;
     } catch (error) {
       console.error('Error extracting PDF text:', error);

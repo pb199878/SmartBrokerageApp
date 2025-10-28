@@ -111,19 +111,21 @@ export class DocumentsService {
    * Wrapped in a method to handle CommonJS/ESM compatibility
    */
   private async extractPDFText(buffer: Buffer): Promise<any> {
-    // pdf-parse is a pure CommonJS module
-    // When built by NestJS/webpack, it needs to be called inline
-    return new Promise((resolve, reject) => {
-      const PDF = require('pdf-parse');
+    try {
+      // pdf-parse exports { PDFParse: function } not a direct function
+      const { PDFParse } = require('pdf-parse');
       
-      // pdf-parse returns a promise when called with a buffer
-      PDF(buffer)
-        .then((data: any) => resolve(data))
-        .catch((err: any) => {
-          console.error('Error extracting PDF text:', err);
-          reject(err);
-        });
-    });
+      if (!PDFParse || typeof PDFParse !== 'function') {
+        throw new Error('PDFParse function not found in pdf-parse module');
+      }
+      
+      // PDFParse returns a promise when called with a buffer
+      const data = await PDFParse(buffer);
+      return data;
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
+      throw error;
+    }
   }
 
   /**

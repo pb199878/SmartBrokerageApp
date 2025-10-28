@@ -120,8 +120,8 @@ export class DocumentsService {
       }
       
       // Instantiate PDFParse class and parse the buffer
-      const parser = new PDFParse(buffer);
-      const data = await parser.parse();
+      const parser = new PDFParse({data: buffer});
+      const data = await parser.getText();
       return data;
     } catch (error) {
       console.error('Error extracting PDF text:', error);

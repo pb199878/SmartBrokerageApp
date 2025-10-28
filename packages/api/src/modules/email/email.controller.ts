@@ -21,6 +21,18 @@ export class EmailController {
     console.log('📦 Content-Type:', req.headers['content-type']);
     console.log('📦 Payload keys:', payload ? Object.keys(payload) : 'EMPTY');
     
+    // Check for files uploaded via multipart (handled by multer)
+    const files = (req as any).files;
+    if (files && files.length > 0) {
+      console.log(`📎 Multer intercepted ${files.length} file(s):`);
+      files.forEach((file: any, index: number) => {
+        console.log(`  File ${index + 1}: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+      });
+      
+      // Add files to payload so the email service can process them
+      payload._uploadedFiles = files;
+    }
+    
     // Debug: Check if payload is empty
     if (!payload || Object.keys(payload).length === 0) {
       console.error('❌ Empty payload received!');

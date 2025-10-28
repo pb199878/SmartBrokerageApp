@@ -189,37 +189,73 @@ export class EmailService {
     });
 
     // 6. Handle attachments
-    if (email.attachments && email.attachments.length > 0) {
-      console.log(`📎 Found ${email.attachments.length} attachment(s)`);
+    const hasUrlBasedAttachments = email.attachments && email.attachments.length > 0;
+    const hasUploadedFiles = email._uploadedFiles && email._uploadedFiles.length > 0;
+    
+    if (hasUrlBasedAttachments || hasUploadedFiles) {
+      console.log(`📎 Processing attachments...`);
       
-      // Filter out irrelevant attachments BEFORE downloading (saves storage space)
-      const relevantAttachments = this.attachmentsService.filterRelevantAttachments(email.attachments);
-      
-      if (relevantAttachments.length === 0) {
-        console.log('⏭️  No relevant attachments to download');
-      } else {
-        console.log(`📥 Downloading ${relevantAttachments.length} relevant attachment(s)...`);
+      // Handle URL-based attachments (from Mailgun's attachments field)
+      if (hasUrlBasedAttachments) {
+        console.log(`📥 Found ${email.attachments.length} URL-based attachment(s)`);
         
-        // Prioritize attachments by importance
-        const prioritizedAttachments = this.attachmentsService.prioritizeAttachments(relevantAttachments);
+        // Filter out irrelevant attachments BEFORE downloading (saves storage space)
+        const relevantAttachments = this.attachmentsService.filterRelevantAttachments(email.attachments);
         
-        for (const attachment of prioritizedAttachments) {
-          try {
-            await this.attachmentsService.downloadAndStoreAttachment(
-              attachment.url, // Mailgun provides direct download URL
-              message.id,
-              listing.id,
-              thread.id,
-              attachment.filename,
-              attachment['content-type'] || attachment.contentType || 'application/octet-stream',
-              attachment.size || 0,
-            );
-          } catch (error) {
-            console.error(`Failed to download attachment ${attachment.filename}:`, error);
-            // Continue processing other attachments even if one fails
+        if (relevantAttachments.length === 0) {
+          console.log('⏭️  No relevant URL-based attachments to download');
+        } else {
+          console.log(`📥 Downloading ${relevantAttachments.length} relevant attachment(s)...`);
+          
+          // Prioritize attachments by importance
+          const prioritizedAttachments = this.attachmentsService.prioritizeAttachments(relevantAttachments);
+          
+          for (const attachment of prioritizedAttachments) {
+            try {
+              await this.attachmentsService.downloadAndStoreAttachment(
+                attachment.url, // Mailgun provides direct download URL
+                message.id,
+                listing.id,
+                thread.id,
+                attachment.filename || attachment.name,
+                attachment['content-type'] || attachment.contentType || 'application/octet-stream',
+                attachment.size || 0,
+              );
+            } catch (error) {
+              console.error(`Failed to download attachment ${attachment.filename}:`, error);
+              // Continue processing other attachments even if one fails
+            }
           }
         }
       }
+      
+      // Handle uploaded files (from multer when Mailgun sends multipart)
+      if (hasUploadedFiles) {
+        console.log(`📤 Found ${email._uploadedFiles.length} uploaded file(s) from multer`);
+        
+        for (const file of email._uploadedFiles) {
+          try {
+            console.log(`Processing uploaded file: ${file.originalname} (${file.size} bytes)`);
+            
+            // Upload the file buffer directly to Supabase
+            await this.attachmentsService.uploadBufferAndStore(
+              file.buffer, // File buffer from multer
+              message.id,
+              listing.id,
+              thread.id,
+              file.originalname,
+              file.mimetype,
+              file.size,
+            );
+          } catch (error) {
+            console.error(`Failed to upload file ${file.originalname}:`, error);
+            // Continue processing other files even if one fails
+          }
+        }
+      }
+    } else if (email.attachmentCount && email.attachmentCount > 0) {
+      console.warn(`⚠️  Email has ${email.attachmentCount} attachment(s) but none were accessible`);
+      console.warn('Mailgun stored the attachments but did not include them in the webhook');
     }
 
     // 7. Upload raw email to Supabase Storage (OPTIONAL - for audit/compliance)

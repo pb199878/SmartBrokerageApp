@@ -73,6 +73,54 @@ export class AttachmentsService {
   }
 
   /**
+   * Upload file buffer directly and store (for multer-uploaded files)
+   * This is used when Mailgun sends attachments via multipart/form-data
+   */
+  async uploadBufferAndStore(
+    buffer: Buffer,
+    messageId: string,
+    listingId: string,
+    threadId: string,
+    filename: string,
+    contentType: string,
+    size: number,
+  ): Promise<any> {
+    try {
+      console.log(`📤 Uploading file buffer: ${filename} (${size} bytes)`);
+
+      // Create S3 key with organized structure
+      const s3Key = `attachments/${listingId}/${threadId}/${messageId}/${filename}`;
+
+      // Upload to Supabase Storage
+      await this.supabaseService.uploadFile(
+        'attachments', // bucket name
+        s3Key,
+        buffer,
+        contentType,
+      );
+
+      console.log(`✅ Uploaded file buffer to: ${s3Key}`);
+
+      // Create attachment record in database
+      const attachment = await this.prisma.attachment.create({
+        data: {
+          messageId,
+          filename,
+          contentType,
+          s3Key,
+          size,
+          virusScanStatus: 'CLEAN', // Stub for now, integrate virus scanning later
+        },
+      });
+
+      return attachment;
+    } catch (error) {
+      console.error(`❌ Failed to upload file buffer ${filename}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get attachment by ID
    */
   async getAttachment(id: string) {

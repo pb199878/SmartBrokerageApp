@@ -5,6 +5,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailgunService } from '../../common/mailgun/mailgun.service';
 import { SupabaseService } from '../../common/supabase/supabase.service';
 import { AttachmentsService } from '../attachments/attachments.service';
+import { DocumentsService } from '../documents/documents.service';
+import { ClassificationService } from '../classification/classification.service';
 import { MessageCategory } from '@prisma/client';
 
 @Injectable()
@@ -15,6 +17,8 @@ export class EmailService {
     private mailgunService: MailgunService,
     private supabaseService: SupabaseService,
     private attachmentsService: AttachmentsService,
+    private documentsService: DocumentsService,
+    private classificationService: ClassificationService,
   ) {}
 
   /**
@@ -261,7 +265,61 @@ export class EmailService {
       console.warn('  - Attachment type not supported or filtered out');
     }
 
-    // 7. Upload raw email to Supabase Storage (OPTIONAL - for audit/compliance)
+    // 7. Analyze attachments (PDF text extraction, OREA form detection)
+    const attachments = await this.prisma.attachment.findMany({
+      where: { messageId: message.id },
+    });
+
+    const documentAnalyses: any[] = [];
+    if (attachments.length > 0) {
+      console.log(`🔍 Analyzing ${attachments.length} attachment(s)...`);
+      
+      for (const attachment of attachments) {
+        // Only analyze PDFs
+        if (attachment.contentType.includes('pdf')) {
+          try {
+            const analysis = await this.documentsService.analyzeAttachment(attachment.id);
+            if (analysis) {
+              documentAnalyses.push(analysis);
+            }
+          } catch (error) {
+            console.error(`Failed to analyze attachment ${attachment.id}:`, error);
+            // Continue with other attachments even if one fails
+          }
+        }
+      }
+    }
+
+    // 8. Classify message (hybrid: heuristics + AI if needed)
+    // Now enhanced with document analysis results for better accuracy
+    console.log('🤖 Classifying message...');
+    try {
+      const classificationResult = await this.classificationService.classifyMessage(
+        message.id,
+        email.subject,
+        email.bodyText,
+        attachments,
+        documentAnalyses, // Pass PDF analysis results for higher confidence
+      );
+
+      // Update message with classification
+      await this.classificationService.updateMessageClassification(message.id, classificationResult);
+
+      // Update thread category if it's an offer
+      if (classificationResult.subCategory === 'NEW_OFFER' || 
+          classificationResult.subCategory === 'UPDATED_OFFER') {
+        await this.prisma.thread.update({
+          where: { id: thread.id },
+          data: { category: 'OFFER' },
+        });
+        console.log('📋 Updated thread category to OFFER');
+      }
+    } catch (error) {
+      console.error('Failed to classify message:', error);
+      // Continue processing even if classification fails
+    }
+
+    // 9. Upload raw email to Supabase Storage (OPTIONAL - for audit/compliance)
     // Use message ID to keep history of all emails, not just latest per thread
     // NOTE: This stores raw .eml files for legal/debugging purposes
     // You can disable this for MVP if you only need Postgres storage
@@ -273,7 +331,7 @@ export class EmailService {
     //   'message/rfc822',
     // );
 
-    // 8. Send push notification
+    // 10. Send push notification
     // TODO: Implement when Expo Push is set up
 
     console.log('✅ Email processed successfully');

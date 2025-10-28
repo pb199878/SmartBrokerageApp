@@ -268,8 +268,8 @@ export class ClassificationService {
       throw new Error('Gemini AI not initialized');
     }
 
-    // Use Gemini 1.5 Flash (fast and free)
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // Use Gemini 2.5 Flash (fast and free)
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     // Build attachment context
     const attachmentContext = attachments.map(att => {

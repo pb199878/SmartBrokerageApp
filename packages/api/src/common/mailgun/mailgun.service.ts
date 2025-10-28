@@ -95,46 +95,20 @@ export class MailgunService {
     // Falls back to 'body-plain' if stripped-text is not available
     const bodyText = eventData['stripped-text'] || eventData['body-plain'];
     
-    // Parse attachments - Mailgun can send in different formats
+    // Parse attachments if Mailgun sends them as a JSON field (rare)
+    // Note: With store+notify, files come via multipart and are handled by multer
+    // They'll be in eventData._uploadedFiles (added by controller)
     let attachments = [];
     
     if (eventData.attachments) {
       try {
-        // Mailgun sends attachments as a JSON string
+        // Some Mailgun configurations send attachments as a JSON string with URLs
         attachments = typeof eventData.attachments === 'string' 
           ? JSON.parse(eventData.attachments)
           : eventData.attachments;
         console.log(`📎 Parsed ${attachments.length} attachment(s) from attachments field`);
       } catch (error) {
-        console.error('Failed to parse attachments:', error);
-        console.log('Raw attachments field:', eventData.attachments);
-      }
-    } 
-    
-    // If no attachments field but attachment-count > 0, check for content-id-map
-    // This happens when using "store and notify" - attachments are in the stored message
-    if (attachments.length === 0 && eventData['attachment-count']) {
-      const count = parseInt(eventData['attachment-count']);
-      if (count > 0) {
-        console.log(`📎 Email has ${count} attachment(s) but no attachments field`);
-        console.log('⚠️  Attachments are stored but not parsed in webhook payload');
-        console.log('💡 Checking for content-id-map or attachment-x fields...');
-        
-        // Try to find attachment-x fields (Mailgun sometimes uses this format)
-        for (let i = 1; i <= count; i++) {
-          const attachmentKey = `attachment-${i}`;
-          if (eventData[attachmentKey]) {
-            console.log(`Found ${attachmentKey}:`, eventData[attachmentKey]);
-            // This is typically a file object from multer when using multipart
-            attachments.push(eventData[attachmentKey]);
-          }
-        }
-        
-        if (attachments.length === 0) {
-          console.warn('⚠️  Could not extract attachment data from payload');
-          console.warn('This typically means attachments are in multipart form fields');
-          console.warn('Available payload keys:', Object.keys(eventData).filter(k => k.includes('attach') || k.includes('content')));
-        }
+        console.error('Failed to parse attachments field:', error);
       }
     }
     
@@ -162,6 +136,7 @@ export class MailgunService {
       timestamp: timestamp,
       attachments: attachments,
       attachmentCount: eventData['attachment-count'] ? parseInt(eventData['attachment-count']) : 0,
+      _uploadedFiles: eventData._uploadedFiles || [], // Pass through multer files from controller
     };
   }
 }

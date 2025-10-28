@@ -254,8 +254,11 @@ export class EmailService {
         }
       }
     } else if (email.attachmentCount && email.attachmentCount > 0) {
-      console.warn(`⚠️  Email has ${email.attachmentCount} attachment(s) but none were accessible`);
-      console.warn('Mailgun stored the attachments but did not include them in the webhook');
+      console.warn(`⚠️  Email reported ${email.attachmentCount} attachment(s) but none were found`);
+      console.warn('Possible reasons:');
+      console.warn('  - Mailgun stored attachments but did not include in webhook');
+      console.warn('  - Multer did not intercept the files');
+      console.warn('  - Attachment type not supported or filtered out');
     }
 
     // 7. Upload raw email to Supabase Storage (OPTIONAL - for audit/compliance)

@@ -8,19 +8,23 @@ import {
   TextInput,
   TouchableOpacity,
 } from 'react-native';
-import { Text, ActivityIndicator } from 'react-native-paper';
+import { Text, ActivityIndicator, Chip } from 'react-native-paper';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { threadsApi, messagesApi } from '../services/api';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { Message } from '@smart-brokerage/shared';
-import { MessageDirection, MessageStatus } from '@smart-brokerage/shared';
+import { MessageDirection, MessageStatus, MessageSubCategory } from '@smart-brokerage/shared';
+import OfferCard from '../components/OfferCard';
 
 type ChatRouteProp = RouteProp<RootStackParamList, 'Chat'>;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function ChatScreen() {
   const route = useRoute<ChatRouteProp>();
+  const navigation = useNavigation<NavigationProp>();
   const { threadId } = route.params;
   const [messageText, setMessageText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -31,6 +35,13 @@ export default function ChatScreen() {
     queryFn: () => threadsApi.getMessages(threadId),
     refetchInterval: 3000, // Poll every 3 seconds for new messages
     refetchIntervalInBackground: false, // Only poll when app is active
+  });
+
+  const { data: offers } = useQuery({
+    queryKey: ['offers', threadId],
+    queryFn: () => threadsApi.getOffers(threadId),
+    refetchInterval: 5000, // Poll for offer updates
+    refetchIntervalInBackground: false,
   });
 
   const sendMutation = useMutation({
@@ -170,61 +181,119 @@ export default function ChatScreen() {
     const isOutbound = item.direction === MessageDirection.OUTBOUND;
     const isFailed = item.status === MessageStatus.FAILED;
     const isRetrying = resendMutation.isPending && resendMutation.variables === item.id;
+    const hasAttachments = item.attachments && item.attachments.length > 0;
+    const hasOffer = item.offerId && item.subCategory && 
+                     (item.subCategory === MessageSubCategory.NEW_OFFER || 
+                      item.subCategory === MessageSubCategory.UPDATED_OFFER);
 
     return (
-      <View
-        style={[
-          styles.messageBubble,
-          isOutbound ? styles.outboundBubble : styles.inboundBubble,
-          isFailed && styles.failedBubble,
-        ]}
-      >
-        {!isOutbound && (
-          <Text variant="labelSmall" style={styles.senderName}>
-            {item.senderName}
-          </Text>
+      <View style={{ marginBottom: 8 }}>
+        {/* Show OfferCard if message contains an offer */}
+        {hasOffer && offers && (
+          <OfferCard
+            offer={offers.find(o => o.id === item.offerId)!}
+            onAccept={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'accept' })}
+            onDecline={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'decline' })}
+            onCounter={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'counter' })}
+            onViewDocument={(offerId) => {
+              const offer = offers.find(o => o.id === offerId);
+              if (offer?.originalDocumentS3Key && item.attachments?.[0]) {
+                navigation.navigate('DocumentViewer', {
+                  attachmentId: item.attachments[0].id,
+                  filename: item.attachments[0].filename,
+                });
+              }
+            }}
+          />
         )}
-        <Text style={[
-          styles.messageText,
-          isOutbound && styles.outboundText,
-        ]}>
-          {item.bodyText}
-        </Text>
-        <View style={styles.messageFooter}>
-          <Text variant="labelSmall" style={[
-            styles.messageTime,
-            isOutbound && styles.outboundText,
-          ]}>
-            {new Date(item.createdAt).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Text>
-          {isOutbound && !isRetrying && (
-            <Text style={[
-              styles.statusIcon,
-              { color: getStatusColor(item.status) }
-            ]}>
-              {getStatusIcon(item.status)}
+
+        {/* Regular message bubble */}
+        <View
+          style={[
+            styles.messageBubble,
+            isOutbound ? styles.outboundBubble : styles.inboundBubble,
+            isFailed && styles.failedBubble,
+          ]}
+        >
+          {!isOutbound && (
+            <Text variant="labelSmall" style={styles.senderName}>
+              {item.senderName}
             </Text>
           )}
-          {isRetrying && (
-            <View style={styles.retryingIndicator}>
-              <ActivityIndicator size="small" color="#FFC107" />
-              <Text style={styles.retryingText}>Sending...</Text>
+
+          {/* Classification badge (for debugging/admin) */}
+          {item.subCategory && item.subCategory !== MessageSubCategory.GENERAL && (
+            <View style={styles.classificationBadge}>
+              <Chip mode="flat" compact textStyle={{ fontSize: 10 }}>
+                {item.subCategory} ({Math.round(item.classificationConfidence || 0)}%)
+              </Chip>
             </View>
           )}
-          {isFailed && !isRetrying && (
-            <TouchableOpacity
-              style={styles.resendButton}
-              onPress={() => handleResend(item.id)}
-              disabled={resendMutation.isPending}
-            >
-              <Text style={styles.resendButtonText}>
-                Retry
-              </Text>
-            </TouchableOpacity>
+
+          <Text style={[
+            styles.messageText,
+            isOutbound && styles.outboundText,
+          ]}>
+            {item.bodyText}
+          </Text>
+
+          {/* Attachments */}
+          {hasAttachments && !hasOffer && (
+            <View style={styles.attachments}>
+              {item.attachments!.map((att) => (
+                <TouchableOpacity
+                  key={att.id}
+                  style={styles.attachmentChip}
+                  onPress={() => navigation.navigate('DocumentViewer', {
+                    attachmentId: att.id,
+                    filename: att.filename,
+                  })}
+                >
+                  <Text style={styles.attachmentIcon}>📎</Text>
+                  <Text style={styles.attachmentText} numberOfLines={1}>
+                    {att.filename}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
+
+          <View style={styles.messageFooter}>
+            <Text variant="labelSmall" style={[
+              styles.messageTime,
+              isOutbound && styles.outboundText,
+            ]}>
+              {new Date(item.createdAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+            {isOutbound && !isRetrying && (
+              <Text style={[
+                styles.statusIcon,
+                { color: getStatusColor(item.status) }
+              ]}>
+                {getStatusIcon(item.status)}
+              </Text>
+            )}
+            {isRetrying && (
+              <View style={styles.retryingIndicator}>
+                <ActivityIndicator size="small" color="#FFC107" />
+                <Text style={styles.retryingText}>Sending...</Text>
+              </View>
+            )}
+            {isFailed && !isRetrying && (
+              <TouchableOpacity
+                style={styles.resendButton}
+                onPress={() => handleResend(item.id)}
+                disabled={resendMutation.isPending}
+              >
+                <Text style={styles.resendButtonText}>
+                  Retry
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     );
@@ -404,6 +473,29 @@ const styles = StyleSheet.create({
   },
   sendIconDisabled: {
     color: '#999',
+  },
+  classificationBadge: {
+    marginBottom: 8,
+  },
+  attachments: {
+    marginTop: 8,
+    gap: 6,
+  },
+  attachmentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  attachmentIcon: {
+    fontSize: 16,
+  },
+  attachmentText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#333',
   },
 });
 

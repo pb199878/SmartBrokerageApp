@@ -6,6 +6,10 @@ import type {
   Message,
   SendMessageDto,
   ListingSender,
+  Offer,
+  DeclineOfferDto,
+  CounterOfferDto,
+  Attachment,
 } from '@smart-brokerage/shared';
 
 const api = axios.create({
@@ -80,6 +84,11 @@ export const threadsApi = {
   markAsRead: async (threadId: string): Promise<void> => {
     await api.patch(`/threads/${threadId}/read`);
   },
+
+  getOffers: async (threadId: string): Promise<Offer[]> => {
+    const response = await api.get(`/threads/${threadId}/offers`);
+    return response.data.data;
+  },
 };
 
 // ============================================================
@@ -95,6 +104,53 @@ export const messagesApi = {
   resend: async (messageId: string): Promise<Message> => {
     const response = await api.post(`/messages/${messageId}/resend`);
     return response.data;
+  },
+};
+
+// ============================================================
+// ATTACHMENTS API
+// ============================================================
+
+export const attachmentsApi = {
+  get: async (id: string): Promise<Attachment> => {
+    const response = await api.get(`/attachments/${id}`);
+    return response.data.data;
+  },
+
+  getDownloadUrl: async (id: string): Promise<string> => {
+    const response = await api.get(`/attachments/${id}/download`);
+    return response.data.data.url;
+  },
+
+  getPreviewUrl: async (id: string): Promise<string> => {
+    const response = await api.get(`/attachments/${id}/preview`);
+    return response.data.data.url;
+  },
+};
+
+// ============================================================
+// OFFERS API
+// ============================================================
+
+export const offersApi = {
+  get: async (id: string): Promise<Offer> => {
+    const response = await api.get(`/offers/${id}`);
+    return response.data.data;
+  },
+
+  accept: async (offerId: string): Promise<{ signUrl: string; expiresAt: number }> => {
+    const response = await api.post(`/offers/${offerId}/accept`);
+    return response.data.data;
+  },
+
+  decline: async (dto: DeclineOfferDto): Promise<Offer> => {
+    const response = await api.post(`/offers/${dto.offerId}/decline`, dto);
+    return response.data.data;
+  },
+
+  counter: async (dto: CounterOfferDto): Promise<{ signUrl: string; expiresAt: number }> => {
+    const response = await api.post(`/offers/${dto.offerId}/counter`, dto);
+    return response.data.data;
   },
 };
 

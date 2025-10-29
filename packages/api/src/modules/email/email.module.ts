@@ -6,12 +6,14 @@ import { EmailService } from './email.service';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { ClassificationModule } from '../classification/classification.module';
+import { OffersModule } from '../offers/offers.module';
 
 @Module({
   imports: [
     AttachmentsModule,
     DocumentsModule,
     ClassificationModule,
+    OffersModule,
     // TODO: Uncomment when Redis is available
     // BullModule.registerQueue({
     //   name: 'email-processing',

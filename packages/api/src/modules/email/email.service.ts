@@ -7,6 +7,7 @@ import { SupabaseService } from '../../common/supabase/supabase.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ClassificationService } from '../classification/classification.service';
+import { OffersService } from '../offers/offers.service';
 import { MessageCategory } from '@prisma/client';
 
 @Injectable()
@@ -19,6 +20,7 @@ export class EmailService {
     private attachmentsService: AttachmentsService,
     private documentsService: DocumentsService,
     private classificationService: ClassificationService,
+    private offersService: OffersService,
   ) {}
 
   /**
@@ -313,6 +315,14 @@ export class EmailService {
           data: { category: 'OFFER' },
         });
         console.log('📋 Updated thread category to OFFER');
+
+        // Create offer record from this message
+        try {
+          await this.offersService.createOfferFromMessage(message.id);
+        } catch (error) {
+          console.error('Failed to create offer from message:', error);
+          // Continue even if offer creation fails
+        }
       }
     } catch (error) {
       console.error('Failed to classify message:', error);

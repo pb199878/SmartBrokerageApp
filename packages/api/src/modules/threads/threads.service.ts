@@ -58,6 +58,28 @@ export class ThreadsService {
     return { success: true };
   }
 
+  async getThreadOffers(threadId: string) {
+    const offers = await this.prisma.offer.findMany({
+      where: { threadId },
+      include: {
+        messages: {
+          include: {
+            attachments: {
+              include: {
+                documentAnalysis: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return { success: true, data: offers };
+  }
+
   async getThreadsBySender(senderEmail: string) {
     const sender = await this.prisma.sender.findUnique({
       where: { email: senderEmail },

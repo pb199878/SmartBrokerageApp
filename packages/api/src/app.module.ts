@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bullmq'; // TODO: Uncomment when Redis is se
 import { PrismaModule } from './common/prisma/prisma.module';
 import { MailgunModule } from './common/mailgun/mailgun.module';
 import { SupabaseModule } from './common/supabase/supabase.module';
+import { HelloSignModule } from './common/hellosign/hellosign.module';
 
 import { ListingsModule } from './modules/listings/listings.module';
 import { ThreadsModule } from './modules/threads/threads.module';
@@ -13,6 +14,7 @@ import { EmailModule } from './modules/email/email.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ClassificationModule } from './modules/classification/classification.module';
+import { OffersModule } from './modules/offers/offers.module';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { ClassificationModule } from './modules/classification/classification.mo
     PrismaModule,
     MailgunModule,
     SupabaseModule,
+    HelloSignModule,
 
     // Feature modules
     ListingsModule,
@@ -45,6 +48,7 @@ import { ClassificationModule } from './modules/classification/classification.mo
     AttachmentsModule,
     DocumentsModule,
     ClassificationModule,
+    OffersModule,
   ],
 })
 export class AppModule {}

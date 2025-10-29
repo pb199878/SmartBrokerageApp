@@ -15,6 +15,11 @@ export class ThreadsController {
     return this.threadsService.getThreadMessages(id);
   }
 
+  @Get(':id/offers')
+  async getThreadOffers(@Param('id') id: string) {
+    return this.threadsService.getThreadOffers(id);
+  }
+
   @Patch(':id/read')
   async markThreadAsRead(@Param('id') id: string) {
     return this.threadsService.markThreadAsRead(id);

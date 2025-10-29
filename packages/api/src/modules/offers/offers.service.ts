@@ -409,21 +409,42 @@ export class OffersService {
    * Handle Dropbox Sign webhook events
    */
   async handleWebhook(payload: any): Promise<void> {
-    const event = payload.event;
-    const signatureRequest = event.signature_request;
+    // Log full payload for debugging
+    console.log('📝 Dropbox Sign webhook payload:', JSON.stringify(payload, null, 2));
 
-    console.log(`📝 Dropbox Sign webhook: ${event.event_type}`);
-
-    // Verify webhook signature
-    const isValid = this.helloSignService.verifyWebhookSignature(
-      event.event_time,
-      event.event_type,
-      event.event_hash,
-    );
-
-    if (!isValid && process.env.NODE_ENV === 'production') {
-      console.error('❌ Invalid Dropbox Sign webhook signature');
+    // Dropbox Sign sends event data directly in payload, not nested under 'event'
+    const event = payload.event || payload;
+    
+    if (!event) {
+      console.error('❌ No event data in webhook payload');
       return;
+    }
+
+    const eventType = event.event_type || payload.event_type;
+    const eventTime = event.event_time || payload.event_time;
+    const eventHash = event.event_hash || payload.event_hash;
+    const signatureRequest = event.signature_request || payload.signature_request;
+
+    if (!signatureRequest) {
+      console.error('❌ No signature_request in webhook payload');
+      console.log('Available keys:', Object.keys(payload));
+      return;
+    }
+
+    console.log(`📝 Dropbox Sign webhook: ${eventType}`);
+
+    // Verify webhook signature (in production)
+    if (process.env.NODE_ENV === 'production' && eventTime && eventType && eventHash) {
+      const isValid = this.helloSignService.verifyWebhookSignature(
+        eventTime,
+        eventType,
+        eventHash,
+      );
+
+      if (!isValid) {
+        console.error('❌ Invalid Dropbox Sign webhook signature');
+        return;
+      }
     }
 
     const signatureRequestId = signatureRequest.signature_request_id;
@@ -447,7 +468,7 @@ export class OffersService {
     }
 
     // Handle different webhook events
-    switch (event.event_type) {
+    switch (eventType) {
       case 'signature_request_signed':
         await this.handleSignatureCompleted(offer, signatureRequest);
         break;
@@ -461,7 +482,7 @@ export class OffersService {
         break;
 
       default:
-        console.log(`Unhandled event type: ${event.event_type}`);
+        console.log(`Unhandled event type: ${eventType}`);
     }
   }
 

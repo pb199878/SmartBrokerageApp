@@ -9,6 +9,8 @@ import SendersScreen from '@/screens/SendersScreen';
 import DocumentViewerScreen from '../screens/DocumentViewerScreen';
 import OfferActionScreen from '../screens/OfferActionScreen';
 import DropboxSignWebViewScreen from '../screens/DropboxSignWebViewScreen';
+import ApsGuidedFormScreen from '../screens/ApsGuidedFormScreen';
+import ApsSigningScreen from '../screens/ApsSigningScreen';
 
 export type RootStackParamList = {
   Listings: undefined;
@@ -18,6 +20,17 @@ export type RootStackParamList = {
   DocumentViewer: { attachmentId: string; filename?: string };
   OfferAction: { offerId: string; action: 'accept' | 'decline' | 'counter' };
   DropboxSign: { signUrl: string; offerId: string };
+  ApsGuidedForm: {
+    listingId: string;
+    attachmentId: string;
+    sellerEmail: string;
+    sellerName?: string;
+  };
+  ApsSigning: {
+    agreementId: string;
+    signUrl: string;
+    listingId: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,6 +89,23 @@ export default function AppNavigator() {
           component={DropboxSignWebViewScreen}
           options={{
             title: 'Sign Document',
+            headerBackTitle: 'Cancel',
+            presentation: 'modal',
+          }}
+        />
+        <Stack.Screen 
+          name="ApsGuidedForm" 
+          component={ApsGuidedFormScreen}
+          options={{
+            title: 'Complete APS Details',
+            headerBackTitle: 'Back',
+          }}
+        />
+        <Stack.Screen 
+          name="ApsSigning" 
+          component={ApsSigningScreen}
+          options={{
+            title: 'Sign APS',
             headerBackTitle: 'Cancel',
             presentation: 'modal',
           }}

@@ -26,6 +26,7 @@
     "bullmq": "^5.1.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
+    "hellosign-sdk": "^2.1.0",
     "mailparser": "^3.6.5",
     "multer": "^2.0.2",
     "pdf-lib": "^1.17.1",

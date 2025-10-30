@@ -10,6 +10,10 @@ import type {
   DeclineOfferDto,
   CounterOfferDto,
   Attachment,
+  PrepareAgreementRequest,
+  PrepareAgreementResponse,
+  AgreementDetail,
+  ApiResponse,
 } from '@smart-brokerage/shared';
 
 const api = axios.create({
@@ -156,6 +160,43 @@ export const offersApi = {
   counter: async (dto: CounterOfferDto): Promise<{ signUrl: string; expiresAt: number }> => {
     const response = await api.post(`/offers/${dto.offerId}/counter`, dto);
     return response.data.data;
+  },
+};
+
+// ============================================================
+// AGREEMENTS API
+// ============================================================
+
+export const agreementsApi = {
+  /**
+   * Prepare an APS for seller signing
+   */
+  prepare: async (request: PrepareAgreementRequest): Promise<PrepareAgreementResponse> => {
+    const response = await api.post<ApiResponse<PrepareAgreementResponse>>(
+      '/agreements/aps/prepare',
+      request,
+    );
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to prepare agreement');
+    }
+    
+    return response.data.data!;
+  },
+
+  /**
+   * Get agreement details by ID
+   */
+  get: async (agreementId: string): Promise<AgreementDetail> => {
+    const response = await api.get<ApiResponse<AgreementDetail>>(
+      `/agreements/${agreementId}`,
+    );
+    
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to get agreement');
+    }
+    
+    return response.data.data!;
   },
 };
 

@@ -40,6 +40,10 @@ export default function ChatScreen() {
     queryFn: () => threadsApi.getMessages(threadId),
     refetchInterval: 3000, // Poll every 3 seconds for new messages
     refetchIntervalInBackground: false, // Only poll when app is active
+    onSuccess: () => {
+      // When messages update, also refetch offers to keep them in sync
+      queryClient.invalidateQueries({ queryKey: ["offers", threadId] });
+    },
   });
 
   const { data: offers } = useQuery({
@@ -88,6 +92,8 @@ export default function ChatScreen() {
     onSuccess: () => {
       // Refetch to get the real message from server
       queryClient.invalidateQueries({ queryKey: ["messages", threadId] });
+      // Also refetch offers in case the new message contains an offer
+      queryClient.invalidateQueries({ queryKey: ["offers", threadId] });
       setMessageText("");
     },
     onError: (err, newMessage, context) => {
@@ -227,12 +233,15 @@ export default function ChatScreen() {
       (item.subCategory === MessageSubCategory.NEW_OFFER ||
         item.subCategory === MessageSubCategory.UPDATED_OFFER);
 
+    const currentOffer =
+      hasOffer && offers ? offers.find((o) => o.id === item.offerId) : null;
+
     return (
       <View style={{ marginBottom: 8 }}>
         {/* Show OfferCard if message contains an offer */}
-        {hasOffer && offers && (
+        {currentOffer && (
           <OfferCard
-            offer={offers.find((o) => o.id === item.offerId)!}
+            offer={currentOffer}
             onAccept={(offerId) =>
               navigation.navigate("OfferAction", { offerId, action: "accept" })
             }
@@ -246,7 +255,7 @@ export default function ChatScreen() {
               continueToSignMutation.mutate(offerId)
             }
             onViewDocument={(offerId) => {
-              const offer = offers.find((o) => o.id === offerId);
+              const offer = offers?.find((o) => o.id === offerId);
               if (offer?.originalDocumentS3Key && item.attachments?.[0]) {
                 navigation.navigate("DocumentViewer", {
                   attachmentId: item.attachments[0].id,

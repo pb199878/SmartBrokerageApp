@@ -195,9 +195,15 @@ export class ClassificationService {
       }
     }
 
-    // Step 5: Check for UPDATED_OFFER signals (only if not already categorized)
-    if (subCategory === MessageSubCategory.GENERAL || subCategory === MessageSubCategory.NEW_OFFER) {
-      const updateKeywords = ['updated offer', 'revised offer', 'new offer', 'counter offer', 'counter-offer'];
+    // Step 5: Check for UPDATED_OFFER signals (only if not already categorized by document analysis)
+    // IMPORTANT: Don't override high-confidence document analysis with email text
+    const hasHighConfidenceDocAnalysis = documentAnalyses && documentAnalyses.length > 0 && 
+                                         documentAnalyses.some(d => d.oreaFormDetected);
+    
+    if ((subCategory === MessageSubCategory.GENERAL || subCategory === MessageSubCategory.NEW_OFFER) && 
+        !hasHighConfidenceDocAnalysis) {
+      // "new offer" removed - it's not an update indicator, it's for NEW offers
+      const updateKeywords = ['updated offer', 'revised offer', 'counter offer', 'counter-offer'];
       const updateCount = updateKeywords.filter(keyword => combined.includes(keyword)).length;
       
       if (updateCount > 0) {
@@ -231,9 +237,13 @@ export class ClassificationService {
     }
 
     // If we detected offer but also update/counter in email, it's an updated offer
+    // BUT: Don't override high-confidence OREA form detection
     const updateKeywords = ['updated', 'revised', 'counter'];
     const hasUpdateKeyword = updateKeywords.some(kw => combined.includes(kw));
-    if (offerCount > 0 && hasUpdateKeyword && subCategory !== MessageSubCategory.AMENDMENT) {
+    const formBasedClassification = documentAnalyses && documentAnalyses.length > 0 && 
+                                    documentAnalyses.some(d => d.oreaFormDetected);
+    
+    if (offerCount > 0 && hasUpdateKeyword && subCategory !== MessageSubCategory.AMENDMENT && !formBasedClassification) {
       subCategory = MessageSubCategory.UPDATED_OFFER;
     }
 

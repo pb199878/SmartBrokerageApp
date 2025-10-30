@@ -43,6 +43,8 @@ export default function OfferCard({
         return "#FF9800"; // Orange
       case OfferStatus.EXPIRED:
         return "#9E9E9E"; // Gray
+      case OfferStatus.SUPERSEDED:
+        return "#757575"; // Gray
       default:
         return "#757575";
     }
@@ -64,6 +66,8 @@ export default function OfferCard({
         return "Counter-Offered";
       case OfferStatus.EXPIRED:
         return "Expired";
+      case OfferStatus.SUPERSEDED:
+        return "Superseded";
       default:
         return status;
     }
@@ -89,6 +93,7 @@ export default function OfferCard({
     offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
   const isAccepted = offer.status === OfferStatus.ACCEPTED;
   const isDeclined = offer.status === OfferStatus.DECLINED;
+  const isSuperseded = offer.status === OfferStatus.SUPERSEDED;
 
   return (
     <Card style={styles.card} mode="elevated">
@@ -171,7 +176,7 @@ export default function OfferCard({
         </View>
 
         {/* Action buttons */}
-        {!isExpired && !isAccepted && !isDeclined && (
+        {!isExpired && !isAccepted && !isDeclined && !isSuperseded && (
           <View style={styles.actions}>
             {onViewDocument && (
               <Button
@@ -262,6 +267,15 @@ export default function OfferCard({
           <View style={styles.declinedBanner}>
             <Text variant="bodySmall" style={styles.declinedText}>
               Declined: {offer.declineReason}
+            </Text>
+          </View>
+        )}
+
+        {/* Superseded message */}
+        {isSuperseded && (
+          <View style={styles.supersededBanner}>
+            <Text variant="bodyMedium" style={styles.supersededText}>
+              ⚠️ This offer was replaced by a newer offer from the same buyer
             </Text>
           </View>
         )}
@@ -356,5 +370,15 @@ const styles = StyleSheet.create({
   declinedText: {
     color: "#C62828",
     fontStyle: "italic",
+  },
+  supersededBanner: {
+    backgroundColor: "#F5F5F5",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  supersededText: {
+    color: "#757575",
+    textAlign: "center",
   },
 });

@@ -153,19 +153,24 @@ export class EmailService {
       });
       console.log(`✨ Created new thread: ${thread.id} (${email.subject})`);
     } else {
-      // 4. Check for duplicate message before storing
-      const isDuplicate = await this.checkForDuplicateMessage({
-        senderEmail: email.from,
-        subject: email.subject,
-        bodyText: email.bodyText,
-        threadId: existingMessage.threadId,
-        timestamp: email.timestamp,
-      });
+      // 4. Check for duplicate message before storing (by Message-ID)
+      // If the same Message-ID already exists, this is a webhook retry
+      if (email.messageId) {
+        const existingMessageWithSameId = await this.prisma.message.findFirst({
+          where: {
+            messageId: email.messageId,
+            threadId: existingMessage.threadId,
+          },
+        });
 
-      if (isDuplicate) {
-        console.log('⚠️ Duplicate email detected - skipping message creation');
-        return; // Skip creating the message
+        if (existingMessageWithSameId) {
+          console.log(`⚠️ Duplicate Message-ID detected (${email.messageId}) - skipping message creation`);
+          return; // Skip creating the message
+        }
       }
+      
+      // Note: We DON'T check for duplicate content anymore because buyers may send
+      // multiple offers with same/similar content, which are legitimate new offers
       // Update existing thread
       thread = await this.prisma.thread.update({
         where: { id: existingMessage.threadId },
@@ -347,37 +352,6 @@ export class EmailService {
     console.log('✅ Email processed successfully');
   }
 
-  /**
-   * Check if a message with the same characteristics already exists
-   * Prevents duplicate email ingestion from webhook retries
-   */
-  private async checkForDuplicateMessage(params: {
-    senderEmail: string;
-    subject: string;
-    bodyText: string;
-    threadId: string;
-    timestamp: Date;
-  }): Promise<boolean> {
-    // Look for existing message with same sender, subject, body, thread, and timestamp (within 1 minute)
-    // We use a 1-minute window to account for minor timestamp variations
-    const oneMinuteBefore = new Date(params.timestamp.getTime() - 60 * 1000);
-    const oneMinuteAfter = new Date(params.timestamp.getTime() + 60 * 1000);
-
-    const existingMessage = await this.prisma.message.findFirst({
-      where: {
-        threadId: params.threadId,
-        senderEmail: params.senderEmail,
-        subject: params.subject,
-        bodyText: params.bodyText,
-        createdAt: {
-          gte: oneMinuteBefore,
-          lte: oneMinuteAfter,
-        },
-      },
-    });
-
-    return existingMessage !== null;
-  }
 
   /**
    * Classify message based on content

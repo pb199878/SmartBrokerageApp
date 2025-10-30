@@ -120,6 +120,7 @@ export class OffersService {
     let price: number | undefined;
     let deposit: number | undefined;
     let closingDate: Date | undefined;
+    let expiryDate: Date | undefined;
     let conditions: string | undefined;
     let originalDocumentS3Key: string | undefined;
 
@@ -139,10 +140,42 @@ export class OffersService {
       if (data.closingDate) {
         closingDate = new Date(data.closingDate);
       }
+      if (data.expiryDate) {
+        expiryDate = new Date(data.expiryDate);
+      }
       if (data.conditions && Array.isArray(data.conditions)) {
         conditions = data.conditions.join(", ");
       }
       originalDocumentS3Key = offerAttachment.s3Key;
+    }
+
+    // Set default expiry date if none was extracted (24 hours from now)
+    // This handles empty OREA forms or forms without clear expiry dates
+    if (!expiryDate) {
+      expiryDate = new Date();
+      expiryDate.setHours(expiryDate.getHours() + 24);
+      console.log(
+        `⏰ No expiry date found in document, defaulting to 24 hours: ${expiryDate.toISOString()}`
+      );
+    }
+
+    // Mark any previous pending offers on this thread as expired
+    // This handles the case where a buyer submits a new offer before the seller reviews the first one
+    const expiredCount = await this.prisma.offer.updateMany({
+      where: {
+        threadId: message.threadId,
+        status: OfferStatus.PENDING_REVIEW,
+      },
+      data: {
+        status: OfferStatus.EXPIRED,
+        updatedAt: new Date(),
+      },
+    });
+
+    if (expiredCount.count > 0) {
+      console.log(
+        `📝 Marked ${expiredCount.count} previous pending offer(s) on thread ${message.threadId} as expired`
+      );
     }
 
     // Create offer record
@@ -154,6 +187,7 @@ export class OffersService {
         price,
         deposit,
         closingDate,
+        expiryDate,
         conditions,
         originalDocumentS3Key,
       },
@@ -162,7 +196,9 @@ export class OffersService {
     // Update message with offer ID
     await this.prisma.message.update({
       where: { id: messageId },
-      data: { offerId: offer.id },
+      data: {
+        offerId: offer.id,
+      },
     });
 
     // Update thread with active offer
@@ -172,6 +208,10 @@ export class OffersService {
     });
 
     console.log(`✅ Created offer ${offer.id} from message ${messageId}`);
+    console.log(`   - Status: ${offer.status}`);
+    console.log(`   - Price: ${offer.price}`);
+    console.log(`   - Expiry: ${offer.expiryDate}`);
+    console.log(`   - Message updated with offerId: ${offer.id}`);
 
     return offer;
   }

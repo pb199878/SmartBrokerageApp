@@ -32,6 +32,7 @@ export enum OfferStatus {
   DECLINED = 'DECLINED', // Seller declined
   COUNTERED = 'COUNTERED', // Seller sent counter-offer
   EXPIRED = 'EXPIRED', // Offer expired
+  SUPERSEDED = 'SUPERSEDED', // Replaced by a newer offer from the same buyer
 }
 
 export interface Message {

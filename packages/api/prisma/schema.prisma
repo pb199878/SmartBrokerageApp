@@ -236,6 +236,7 @@ enum OfferStatus {
   DECLINED // Seller declined
   COUNTERED // Seller sent counter-offer
   EXPIRED // Offer expired
+  SUPERSEDED // Replaced by a newer offer from the same buyer
 }
 
 model Offer {

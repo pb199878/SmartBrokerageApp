@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { SupabaseService } from '../../common/supabase/supabase.service';
-import axios from 'axios';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../../common/prisma/prisma.service";
+import { SupabaseService } from "../../common/supabase/supabase.service";
+import axios from "axios";
 
 interface OREAFormDetectionResult {
   isOREAForm: boolean;
@@ -14,6 +14,7 @@ interface ExtractedOfferData {
   price?: number;
   deposit?: number;
   closingDate?: string;
+  expiryDate?: string;
   conditions?: string[];
   buyers?: string[];
   sellers?: string[];
@@ -24,7 +25,7 @@ interface ExtractedOfferData {
 export class DocumentsService {
   constructor(
     private prisma: PrismaService,
-    private supabaseService: SupabaseService,
+    private supabaseService: SupabaseService
   ) {}
 
   /**
@@ -44,7 +45,7 @@ export class DocumentsService {
     }
 
     // Skip analysis for non-PDF files
-    if (!attachment.contentType.includes('pdf')) {
+    if (!attachment.contentType.includes("pdf")) {
       console.log(`⏭️  Skipping non-PDF file: ${attachment.filename}`);
       return null;
     }
@@ -58,7 +59,9 @@ export class DocumentsService {
       const textContent = pdfData.text;
       const pageCount = pdfData.numpages;
 
-      console.log(`📝 Extracted ${textContent.length} characters from ${pageCount} pages`);
+      console.log(
+        `📝 Extracted ${textContent.length} characters from ${pageCount} pages`
+      );
 
       // Detect OREA form
       const oreaDetection = this.detectOREAForm(textContent);
@@ -74,7 +77,7 @@ export class DocumentsService {
         attachment.filename,
         textContent,
         oreaDetection.isOREAForm,
-        pageCount,
+        pageCount
       );
 
       // Create document analysis record
@@ -85,7 +88,9 @@ export class DocumentsService {
           oreaFormDetected: oreaDetection.isOREAForm,
           relevanceScore,
           confidence: oreaDetection.confidence,
-          extractedData: extractedData ? JSON.parse(JSON.stringify(extractedData)) : undefined,
+          extractedData: extractedData
+            ? JSON.parse(JSON.stringify(extractedData))
+            : undefined,
           textContent,
           pageCount,
         },
@@ -97,7 +102,11 @@ export class DocumentsService {
         data: { documentAnalysisId: analysis.id },
       });
 
-      console.log(`✅ Document analysis complete: ${oreaDetection.formType || 'Unknown document'}`);
+      console.log(
+        `✅ Document analysis complete: ${
+          oreaDetection.formType || "Unknown document"
+        }`
+      );
 
       return analysis;
     } catch (error) {
@@ -113,18 +122,18 @@ export class DocumentsService {
   private async extractPDFText(buffer: Buffer): Promise<any> {
     try {
       // pdf-parse exports PDFParse as a class constructor
-      const { PDFParse } = require('pdf-parse');
-      
+      const { PDFParse } = require("pdf-parse");
+
       if (!PDFParse) {
-        throw new Error('PDFParse class not found in pdf-parse module');
+        throw new Error("PDFParse class not found in pdf-parse module");
       }
-      
+
       // Instantiate PDFParse class and parse the buffer
-      const parser = new PDFParse({data: buffer});
+      const parser = new PDFParse({ data: buffer });
       const data = await parser.getText();
       return data;
     } catch (error) {
-      console.error('Error extracting PDF text:', error);
+      console.error("Error extracting PDF text:", error);
       throw error;
     }
   }
@@ -134,11 +143,15 @@ export class DocumentsService {
    */
   private async downloadPDFFromSupabase(s3Key: string): Promise<Buffer> {
     // Get signed URL
-    const signedUrl = await this.supabaseService.getSignedUrl('attachments', s3Key, 300); // 5 min
+    const signedUrl = await this.supabaseService.getSignedUrl(
+      "attachments",
+      s3Key,
+      300
+    ); // 5 min
 
     // Download PDF
     const response = await axios.get(signedUrl, {
-      responseType: 'arraybuffer',
+      responseType: "arraybuffer",
       timeout: 30000,
     });
 
@@ -156,13 +169,13 @@ export class DocumentsService {
 
     // Check for OREA identifiers
     const oreaKeywords = [
-      'ontario real estate association',
-      'orea',
-      'toronto regional real estate board',
-      'trreb',
+      "ontario real estate association",
+      "orea",
+      "toronto regional real estate board",
+      "trreb",
     ];
 
-    oreaKeywords.forEach(keyword => {
+    oreaKeywords.forEach((keyword) => {
       if (text.includes(keyword)) {
         identifiers.push(keyword);
         confidence += 20;
@@ -170,39 +183,45 @@ export class DocumentsService {
     });
 
     // Detect specific form types
-    if (text.includes('agreement of purchase and sale') || text.includes('form 100')) {
-      formType = 'Form 100 - Agreement of Purchase and Sale';
+    if (
+      text.includes("agreement of purchase and sale") ||
+      text.includes("form 100")
+    ) {
+      formType = "Form 100 - Agreement of Purchase and Sale";
       confidence += 30;
-      identifiers.push('Form 100 APS');
-    } else if (text.includes('amendment to agreement') || text.includes('form 120')) {
-      formType = 'Form 120 - Amendment to Agreement';
+      identifiers.push("Form 100 APS");
+    } else if (
+      text.includes("amendment to agreement") ||
+      text.includes("form 120")
+    ) {
+      formType = "Form 120 - Amendment to Agreement";
       confidence += 30;
-      identifiers.push('Form 120 Amendment');
-    } else if (text.includes('waiver') || text.includes('form 123')) {
-      formType = 'Form 123 - Waiver';
+      identifiers.push("Form 120 Amendment");
+    } else if (text.includes("waiver") || text.includes("form 123")) {
+      formType = "Form 123 - Waiver";
       confidence += 30;
-      identifiers.push('Form 123 Waiver');
-    } else if (text.includes('counter offer') || text.includes('form 221')) {
-      formType = 'Form 221 - Counter Offer';
+      identifiers.push("Form 123 Waiver");
+    } else if (text.includes("counter offer") || text.includes("form 221")) {
+      formType = "Form 221 - Counter Offer";
       confidence += 30;
-      identifiers.push('Form 221 Counter Offer');
-    } else if (text.includes('mutual release') || text.includes('form 122')) {
-      formType = 'Form 122 - Mutual Release';
+      identifiers.push("Form 221 Counter Offer");
+    } else if (text.includes("mutual release") || text.includes("form 122")) {
+      formType = "Form 122 - Mutual Release";
       confidence += 30;
-      identifiers.push('Form 122 Release');
+      identifiers.push("Form 122 Release");
     }
 
     // Additional validation - check for required fields in APS
-    if (formType && formType.includes('Form 100')) {
+    if (formType && formType.includes("Form 100")) {
       const requiredFields = [
-        'purchase price',
-        'deposit',
-        'buyer',
-        'seller',
-        'property',
+        "purchase price",
+        "deposit",
+        "buyer",
+        "seller",
+        "property",
       ];
 
-      requiredFields.forEach(field => {
+      requiredFields.forEach((field) => {
         if (text.includes(field)) {
           confidence += 2;
         }
@@ -231,36 +250,50 @@ export class DocumentsService {
     // Extract price
     const priceMatch = textContent.match(/purchase price.*?(\$[\d,]+)/i);
     if (priceMatch) {
-      const priceStr = priceMatch[1].replace(/[$,]/g, '');
+      const priceStr = priceMatch[1].replace(/[$,]/g, "");
       data.price = parseFloat(priceStr);
     }
 
     // Extract deposit
     const depositMatch = textContent.match(/deposit.*?(\$[\d,]+)/i);
     if (depositMatch) {
-      const depositStr = depositMatch[1].replace(/[$,]/g, '');
+      const depositStr = depositMatch[1].replace(/[$,]/g, "");
       data.deposit = parseFloat(depositStr);
     }
 
     // Extract closing date (various formats)
-    const closingMatch = textContent.match(/completion date.*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4})/i);
+    const closingMatch = textContent.match(
+      /completion date.*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4})/i
+    );
     if (closingMatch) {
       data.closingDate = closingMatch[1];
     }
 
+    // Extract expiry date (irrevocable date on OREA forms)
+    // Common patterns: "irrevocable", "expires", "expiry", "valid until"
+    const expiryMatch = textContent.match(
+      /(?:irrevocable|expir(?:y|es)|valid until).*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+    );
+    if (expiryMatch) {
+      data.expiryDate = expiryMatch[1];
+    }
+
     // Extract conditions
     const conditions: string[] = [];
-    if (textContent.toLowerCase().includes('subject to') || textContent.toLowerCase().includes('conditional')) {
+    if (
+      textContent.toLowerCase().includes("subject to") ||
+      textContent.toLowerCase().includes("conditional")
+    ) {
       // Common conditions
       const conditionKeywords = [
-        'financing',
-        'home inspection',
-        'status certificate',
-        'sale of buyer\'s property',
-        'environmental',
+        "financing",
+        "home inspection",
+        "status certificate",
+        "sale of buyer's property",
+        "environmental",
       ];
 
-      conditionKeywords.forEach(keyword => {
+      conditionKeywords.forEach((keyword) => {
         if (textContent.toLowerCase().includes(keyword)) {
           conditions.push(keyword);
         }
@@ -271,7 +304,9 @@ export class DocumentsService {
     }
 
     // Extract property address
-    const addressMatch = textContent.match(/property.*?([\d]+\s+[\w\s]+(?:street|st|avenue|ave|road|rd|drive|dr|blvd|boulevard|lane|ln|court|ct))/i);
+    const addressMatch = textContent.match(
+      /property.*?([\d]+\s+[\w\s]+(?:street|st|avenue|ave|road|rd|drive|dr|blvd|boulevard|lane|ln|court|ct))/i
+    );
     if (addressMatch) {
       data.propertyAddress = addressMatch[1].trim();
     }
@@ -286,7 +321,7 @@ export class DocumentsService {
     filename: string,
     textContent: string,
     isOREAForm: boolean,
-    pageCount: number,
+    pageCount: number
   ): number {
     let score = 0;
 
@@ -296,9 +331,15 @@ export class DocumentsService {
     }
 
     // Filename keywords
-    const highPriorityKeywords = ['offer', 'aps', 'form', 'agreement', 'amendment'];
+    const highPriorityKeywords = [
+      "offer",
+      "aps",
+      "form",
+      "agreement",
+      "amendment",
+    ];
     const lowerFilename = filename.toLowerCase();
-    highPriorityKeywords.forEach(keyword => {
+    highPriorityKeywords.forEach((keyword) => {
       if (lowerFilename.includes(keyword)) {
         score += 8;
       }
@@ -322,17 +363,17 @@ export class DocumentsService {
 
     // Check for important keywords in content
     const importantKeywords = [
-      'purchase price',
-      'deposit',
-      'closing date',
-      'buyer',
-      'seller',
-      'property',
-      'agreement',
+      "purchase price",
+      "deposit",
+      "closing date",
+      "buyer",
+      "seller",
+      "property",
+      "agreement",
     ];
 
     const lowerText = textContent.toLowerCase();
-    importantKeywords.forEach(keyword => {
+    importantKeywords.forEach((keyword) => {
       if (lowerText.includes(keyword)) {
         score += 2;
       }
@@ -359,4 +400,3 @@ export class DocumentsService {
     return analysis !== null;
   }
 }
-

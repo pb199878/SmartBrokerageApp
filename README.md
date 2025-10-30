@@ -82,30 +82,36 @@ npm install --workspaces
 
 ### 2. Environment Setup
 
-Copy `env.example` to `.env` in the root directory:
+Create a `.env` file in the API package directory:
 
 ```bash
-cp env.example .env
+cp packages/api/.env.example packages/api/.env
 ```
 
-For **local development without external services**, you can use these values:
+For **local development without external services**, you can use these minimal values:
 
 ```env
-# Local Postgres (or leave as-is for stubbed mode)
+# Database (use local Postgres or Supabase)
 DATABASE_URL="postgresql://postgres:password@localhost:5432/smart_brokerage"
 
 # Stubbed services (will work with mock data)
 SUPABASE_URL="https://stubbed.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="stubbed-key"
+SUPABASE_SERVICE_KEY="stubbed-key"
 MAILGUN_API_KEY="stubbed-key"
 MAILGUN_DOMAIN="inbox.yourapp.ca"
-REDIS_URL="redis://localhost:6379"
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
 
 # API config
 NODE_ENV="development"
 PORT="3000"
-API_URL="http://localhost:3000"
+
+# Leave these empty for now - add when ready to test document signing
+HELLOSIGN_API_KEY=""
+HELLOSIGN_CLIENT_ID=""
 ```
+
+**Note**: Document signing features require Dropbox Sign credentials. See the "Services to Register For" section below.
 
 ### 3. Database Setup (Optional for MVP)
 
@@ -275,7 +281,18 @@ When you're ready to move beyond local development:
   - `MAILGUN_DOMAIN`
   - `MAILGUN_WEBHOOK_SIGNING_KEY`
 
-### 3. Railway (Hosting + Redis)
+### 3. Dropbox Sign / HelloSign (Document Signing)
+- Sign up: [sign.dropbox.com](https://sign.dropbox.com)
+- Go to Settings → API (or visit [app.hellosign.com/home/myAccount#api](https://app.hellosign.com/home/myAccount#api))
+- Get your API credentials:
+  - **API Key** - Used to authenticate API requests
+  - **Client ID** - Required for embedded signing (in-app signing)
+- Update `packages/api/.env` with:
+  - `HELLOSIGN_API_KEY="your-api-key-here"`
+  - `HELLOSIGN_CLIENT_ID="your-client-id-here"`
+- **Note**: The app uses test mode in development (no real signatures)
+
+### 4. Railway (Hosting + Redis)
 - Sign up: [railway.app](https://railway.app)
 - Create new project
 - Add services:
@@ -284,7 +301,7 @@ When you're ready to move beyond local development:
 - Railway auto-populates `REDIS_URL`
 - Add other environment variables from `.env`
 
-### 4. Vercel (Future - Admin UI)
+### 5. Vercel (Future - Admin UI)
 - Sign up: [vercel.com](https://vercel.com)
 - Deploy Next.js admin dashboard (when built)
 

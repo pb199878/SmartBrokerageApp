@@ -143,6 +143,11 @@ export const offersApi = {
     return response.data.data;
   },
 
+  getSignUrl: async (offerId: string): Promise<{ signUrl: string; expiresAt: number }> => {
+    const response = await api.get(`/offers/${offerId}/sign-url`);
+    return response.data.data;
+  },
+
   decline: async (dto: DeclineOfferDto): Promise<Offer> => {
     const response = await api.post(`/offers/${dto.offerId}/decline`, dto);
     return response.data.data;

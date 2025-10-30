@@ -7,13 +7,14 @@ import {
   Platform,
   TextInput,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { Text, ActivityIndicator, Chip } from 'react-native-paper';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { threadsApi, messagesApi } from '../services/api';
+import { threadsApi, messagesApi, offersApi } from '../services/api';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import type { Message } from '@smart-brokerage/shared';
 import { MessageDirection, MessageStatus, MessageSubCategory } from '@smart-brokerage/shared';
@@ -87,6 +88,20 @@ export default function ChatScreen() {
       if (context?.previousMessages) {
         queryClient.setQueryData(['messages', threadId], context.previousMessages);
       }
+    },
+  });
+
+  const continueToSignMutation = useMutation({
+    mutationFn: offersApi.getSignUrl,
+    onSuccess: (data, offerId) => {
+      // Navigate to Dropbox Sign WebView for signing
+      navigation.navigate('DropboxSign', {
+        signUrl: data.signUrl,
+        offerId: offerId,
+      });
+    },
+    onError: (error: any) => {
+      Alert.alert('Error', error.response?.data?.message || 'Failed to get signing URL. Please try again.');
     },
   });
 
@@ -195,6 +210,7 @@ export default function ChatScreen() {
             onAccept={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'accept' })}
             onDecline={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'decline' })}
             onCounter={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'counter' })}
+            onContinueToSign={(offerId) => continueToSignMutation.mutate(offerId)}
             onViewDocument={(offerId) => {
               const offer = offers.find(o => o.id === offerId);
               if (offer?.originalDocumentS3Key && item.attachments?.[0]) {

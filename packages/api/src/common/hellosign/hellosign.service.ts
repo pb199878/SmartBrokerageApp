@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { URL } from 'url';
 import FormData from 'form-data';
 
 interface EmbeddedSignatureRequest {
@@ -34,6 +35,11 @@ export class HelloSignService {
     this.apiKey = this.configService.get<string>('HELLOSIGN_API_KEY') || '';
     this.clientId = this.configService.get<string>('HELLOSIGN_CLIENT_ID') || '';
 
+    // Debug logging
+    console.log('🔍 HelloSign Debug:');
+    console.log('   API Key:', this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'NOT SET');
+    console.log('   Client ID:', this.clientId ? this.clientId : 'NOT SET');
+
     if (!this.apiKey || !this.clientId) {
       console.warn('⚠️  Dropbox Sign credentials not configured. Check your .env file.');
       console.warn('   Add HELLOSIGN_API_KEY and HELLOSIGN_CLIENT_ID to use signing features.');
@@ -50,7 +56,10 @@ export class HelloSignService {
     options: SignatureRequestOptions,
   ): Promise<EmbeddedSignatureRequest> {
     if (!this.apiKey) {
-      throw new Error('Dropbox Sign API key not configured');
+      throw new Error('Dropbox Sign API key not configured. Please set HELLOSIGN_API_KEY in your .env file.');
+    }
+    if (!this.clientId) {
+      throw new Error('Dropbox Sign Client ID not configured. Please set HELLOSIGN_CLIENT_ID in your .env file.');
     }
 
     try {
@@ -60,6 +69,12 @@ export class HelloSignService {
       formData.append('title', options.title);
       formData.append('subject', options.subject);
       formData.append('message', options.message);
+
+      // Debug: Log what we're sending
+      console.log('📤 Creating signature request with:');
+      console.log('   client_id:', this.clientId);
+      console.log('   test_mode:', process.env.NODE_ENV !== 'production' ? '1' : '0');
+      console.log('   title:', options.title);
 
       // Add signers
       options.signers.forEach((signer, index) => {
@@ -91,15 +106,23 @@ export class HelloSignService {
         formData,
         {
           headers: {
+            ...formData.getHeaders(),
             Authorization: `Basic ${Buffer.from(this.apiKey + ':').toString('base64')}`,
           },
         },
       );
 
       const signatureRequestId = response.data.signature_request.signature_request_id;
+      
+      // Get signature_id for the first signer (needed for embedded signing URL)
+      const signatures = response.data.signature_request.signatures;
+      if (!signatures || signatures.length === 0) {
+        throw new Error('No signatures found in signature request');
+      }
+      const signatureId = signatures[0].signature_id;
 
-      // Get embedded signing URL for the first signer
-      const signUrlResponse = await this.getEmbeddedSignUrl(signatureRequestId);
+      // Get embedded signing URL for the first signer using their signature_id
+      const signUrlResponse = await this.getEmbeddedSignUrl(signatureId);
 
       return {
         signatureRequestId,
@@ -107,22 +130,34 @@ export class HelloSignService {
         expiresAt: signUrlResponse.expiresAt,
       };
     } catch (error) {
-      console.error('Failed to create embedded signature request:', error);
+      if (axios.isAxiosError(error) && error.response) {
+        console.error('Failed to create embedded signature request:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          error: error.response.data,
+        });
+      } else {
+        console.error('Failed to create embedded signature request:', error);
+      }
       throw error;
     }
   }
 
   /**
-   * Get embedded signing URL for a signature request
+   * Get embedded signing URL for a specific signature
+   * @param signatureId - The signature_id for the specific signer (NOT signature_request_id)
    */
-  async getEmbeddedSignUrl(signatureRequestId: string): Promise<{ signUrl: string; expiresAt: number }> {
+  async getEmbeddedSignUrl(signatureId: string): Promise<{ signUrl: string; expiresAt: number }> {
     if (!this.apiKey) {
       throw new Error('Dropbox Sign API key not configured');
+    }
+    if (!this.clientId) {
+      throw new Error('Dropbox Sign Client ID not configured');
     }
 
     try {
       const response = await axios.get(
-        `${this.baseUrl}/embedded/sign_url/${signatureRequestId}`,
+        `${this.baseUrl}/embedded/sign_url/${signatureId}`,
         {
           headers: {
             Authorization: `Basic ${Buffer.from(this.apiKey + ':').toString('base64')}`,
@@ -130,12 +165,28 @@ export class HelloSignService {
         },
       );
 
+      const url = new URL(response.data.embedded.sign_url);
+      url.searchParams.set('client_id', this.clientId);
+
+      if (process.env.NODE_ENV !== 'production') {
+        url.searchParams.set('skip_domain_verification', '1');
+      }
+
       return {
-        signUrl: response.data.embedded.sign_url,
+        signUrl: url.toString(),
         expiresAt: response.data.embedded.expires_at,
       };
     } catch (error) {
-      console.error('Failed to get embedded sign URL:', error);
+      if (axios.isAxiosError(error) && error.response) {
+        console.error('Failed to get embedded sign URL:', {
+          signatureId,
+          status: error.response.status,
+          statusText: error.response.statusText,
+          error: error.response.data,
+        });
+      } else {
+        console.error('Failed to get embedded sign URL:', error);
+      }
       throw error;
     }
   }

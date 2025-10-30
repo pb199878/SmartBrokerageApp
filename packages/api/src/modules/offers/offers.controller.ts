@@ -28,6 +28,28 @@ export class OffersController {
   }
 
   /**
+   * Get signing URL for offer awaiting seller signature
+   * GET /offers/:id/sign-url
+   * Returns fresh signing URL if one already exists
+   */
+  @Get(':id/sign-url')
+  async getSignUrl(@Param('id') id: string) {
+    const result = await this.offersService.getSignUrl(id);
+    return { success: true, data: result };
+  }
+
+  /**
+   * Reset offer back to PENDING_REVIEW
+   * POST /offers/:id/reset
+   * Use this if offer gets stuck in AWAITING_SELLER_SIGNATURE due to errors
+   */
+  @Post(':id/reset')
+  async resetOffer(@Param('id') id: string) {
+    const offer = await this.offersService.resetOffer(id);
+    return { success: true, data: offer };
+  }
+
+  /**
    * Decline offer
    * POST /offers/:id/decline
    */

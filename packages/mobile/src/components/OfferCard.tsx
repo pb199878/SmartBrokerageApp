@@ -12,6 +12,7 @@ interface OfferCardProps {
   onDecline?: (offerId: string) => void;
   onCounter?: (offerId: string) => void;
   onViewDocument?: (offerId: string) => void;
+  onContinueToSign?: (offerId: string) => void;
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -22,6 +23,7 @@ export default function OfferCard({
   onDecline,
   onCounter,
   onViewDocument,
+  onContinueToSign,
 }: OfferCardProps) {
   const navigation = useNavigation<NavigationProp>();
 
@@ -83,6 +85,7 @@ export default function OfferCard({
 
   const isExpired = offer.expiryDate && new Date(offer.expiryDate) < new Date();
   const isPending = offer.status === OfferStatus.PENDING_REVIEW;
+  const isAwaitingSignature = offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
   const isAccepted = offer.status === OfferStatus.ACCEPTED;
   const isDeclined = offer.status === OfferStatus.DECLINED;
 
@@ -202,6 +205,38 @@ export default function OfferCard({
                     textColor="#F44336"
                   >
                     Decline
+                  </Button>
+                </View>
+              </>
+            )}
+
+            {isAwaitingSignature && onContinueToSign && (
+              <>
+                <Button
+                  mode="contained"
+                  onPress={() => onContinueToSign(offer.id)}
+                  style={[styles.actionButton, styles.acceptButton]}
+                  buttonColor="#2196F3"
+                  icon="draw"
+                >
+                  Continue to Sign
+                </Button>
+
+                <View style={styles.secondaryActions}>
+                  <Button
+                    mode="outlined"
+                    onPress={() => onCounter?.(offer.id)}
+                    style={styles.secondaryButton}
+                  >
+                    Counter Instead
+                  </Button>
+                  <Button
+                    mode="text"
+                    onPress={() => onDecline?.(offer.id)}
+                    style={styles.secondaryButton}
+                    textColor="#F44336"
+                  >
+                    Cancel
                   </Button>
                 </View>
               </>

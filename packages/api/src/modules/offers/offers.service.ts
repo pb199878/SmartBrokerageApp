@@ -299,6 +299,7 @@ export class OffersService {
     );
 
     // Create embedded signature request for seller
+    // This must succeed before we update the offer status
     const signatureRequest = await this.helloSignService.createEmbeddedSignatureRequest({
       title: `Accept Offer - ${offer.thread.listing.address}`,
       subject: `Acceptance of Offer for ${offer.thread.listing.address}`,
@@ -318,7 +319,7 @@ export class OffersService {
       },
     });
 
-    // Update offer status
+    // Only update status AFTER successful signature request creation
     await this.prisma.offer.update({
       where: { id: offerId },
       data: {
@@ -336,13 +337,75 @@ export class OffersService {
   }
 
   /**
+   * Get signing URL for an offer that's awaiting seller signature
+   */
+  async getSignUrl(offerId: string): Promise<{ signUrl: string; expiresAt: number }> {
+    const offer = await this.getOffer(offerId);
+
+    // Validate offer is in correct state
+    if (offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
+      throw new Error(`Cannot get sign URL. Current status: ${offer.status}`);
+    }
+
+    if (!offer.hellosignSignatureRequestId) {
+      throw new Error('No signature request found for this offer');
+    }
+
+    // Get the signature request from HelloSign to retrieve the signature_id
+    const signatureRequest = await this.helloSignService.getSignatureRequest(
+      offer.hellosignSignatureRequestId,
+    );
+
+    // Find the seller's signature (first signer)
+    const signatures = signatureRequest.signatures;
+    if (!signatures || signatures.length === 0) {
+      throw new Error('No signatures found in signature request');
+    }
+
+    const signatureId = signatures[0].signature_id;
+
+    // Get fresh embedded signing URL
+    const signUrlResponse = await this.helloSignService.getEmbeddedSignUrl(signatureId);
+
+    return {
+      signUrl: signUrlResponse.signUrl,
+      expiresAt: signUrlResponse.expiresAt,
+    };
+  }
+
+  /**
+   * Reset offer back to PENDING_REVIEW (in case of errors during signature creation)
+   */
+  async resetOffer(offerId: string): Promise<any> {
+    const offer = await this.getOffer(offerId);
+
+    // Only allow resetting from AWAITING_SELLER_SIGNATURE
+    if (offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
+      throw new Error(`Cannot reset offer. Current status: ${offer.status}`);
+    }
+
+    const updatedOffer = await this.prisma.offer.update({
+      where: { id: offerId },
+      data: {
+        status: OfferStatus.PENDING_REVIEW,
+        hellosignSignatureRequestId: null, // Clear the failed signature request ID
+      },
+    });
+
+    console.log(`♻️  Reset offer ${offerId} back to PENDING_REVIEW`);
+
+    return updatedOffer;
+  }
+
+  /**
    * Decline offer
    */
   async declineOffer(dto: DeclineOfferDto): Promise<any> {
     const offer = await this.getOffer(dto.offerId);
 
-    // Validate offer can be declined
-    if (offer.status !== OfferStatus.PENDING_REVIEW) {
+    // Validate offer can be declined (allow from PENDING_REVIEW or AWAITING_SELLER_SIGNATURE)
+    if (offer.status !== OfferStatus.PENDING_REVIEW && 
+        offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
       throw new Error(`Offer cannot be declined. Current status: ${offer.status}`);
     }
 
@@ -375,8 +438,9 @@ export class OffersService {
   async counterOffer(dto: CounterOfferDto): Promise<{ signUrl: string; expiresAt: number }> {
     const offer = await this.getOffer(dto.offerId);
 
-    // Validate offer can be countered
-    if (offer.status !== OfferStatus.PENDING_REVIEW) {
+    // Validate offer can be countered (allow from PENDING_REVIEW or AWAITING_SELLER_SIGNATURE)
+    if (offer.status !== OfferStatus.PENDING_REVIEW && 
+        offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
       throw new Error(`Offer cannot be countered. Current status: ${offer.status}`);
     }
 

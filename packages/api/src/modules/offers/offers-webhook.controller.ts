@@ -1,5 +1,13 @@
-import { Controller, Post, Req, Res, HttpStatus } from "@nestjs/common";
+import {
+  Controller,
+  Post,
+  Req,
+  Res,
+  HttpStatus,
+  UseInterceptors,
+} from "@nestjs/common";
 import { Request, Response } from "express";
+import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import { OffersService } from "./offers.service";
 
 @Controller("webhooks")
@@ -11,7 +19,7 @@ export class OffersWebhookController {
    * Receives signature events and processes them
    * POST /webhooks/hellosign
    *
-   * IMPORTANT: Dropbox Sign sends webhooks as application/x-www-form-urlencoded
+   * IMPORTANT: Dropbox Sign sends webhooks as multipart/form-data
    * with the event data in a 'json' field (as a stringified JSON object)
    *
    * Example (like Python's request.POST.get('json')):
@@ -19,6 +27,7 @@ export class OffersWebhookController {
    * - We parse this string to get the actual event data
    */
   @Post("hellosign")
+  @UseInterceptors(AnyFilesInterceptor()) // Parse multipart/form-data (like multer)
   async handleHelloSignWebhook(@Req() req: Request, @Res() res: Response) {
     console.log("📝 Received Dropbox Sign webhook");
     console.log("Content-Type:", req.headers["content-type"]);

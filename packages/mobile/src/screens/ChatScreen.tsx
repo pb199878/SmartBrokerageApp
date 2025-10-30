@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   FlatList,
@@ -8,38 +8,42 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-} from 'react-native';
-import { Text, ActivityIndicator, Chip } from 'react-native-paper';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import type { RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { threadsApi, messagesApi, offersApi } from '../services/api';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-import type { Message } from '@smart-brokerage/shared';
-import { MessageDirection, MessageStatus, MessageSubCategory } from '@smart-brokerage/shared';
-import OfferCard from '../components/OfferCard';
+} from "react-native";
+import { Text, ActivityIndicator, Chip } from "react-native-paper";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { threadsApi, messagesApi, offersApi } from "../services/api";
+import type { RootStackParamList } from "../navigation/AppNavigator";
+import type { Message } from "@smart-brokerage/shared";
+import {
+  MessageDirection,
+  MessageStatus,
+  MessageSubCategory,
+} from "@smart-brokerage/shared";
+import OfferCard from "../components/OfferCard";
 
-type ChatRouteProp = RouteProp<RootStackParamList, 'Chat'>;
+type ChatRouteProp = RouteProp<RootStackParamList, "Chat">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function ChatScreen() {
   const route = useRoute<ChatRouteProp>();
   const navigation = useNavigation<NavigationProp>();
   const { threadId } = route.params;
-  const [messageText, setMessageText] = useState('');
+  const [messageText, setMessageText] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery({
-    queryKey: ['messages', threadId],
+    queryKey: ["messages", threadId],
     queryFn: () => threadsApi.getMessages(threadId),
     refetchInterval: 3000, // Poll every 3 seconds for new messages
     refetchIntervalInBackground: false, // Only poll when app is active
   });
 
   const { data: offers } = useQuery({
-    queryKey: ['offers', threadId],
+    queryKey: ["offers", threadId],
     queryFn: () => threadsApi.getOffers(threadId),
     refetchInterval: 5000, // Poll for offer updates
     refetchIntervalInBackground: false,
@@ -49,10 +53,13 @@ export default function ChatScreen() {
     mutationFn: messagesApi.send,
     onMutate: async (newMessage) => {
       // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['messages', threadId] });
+      await queryClient.cancelQueries({ queryKey: ["messages", threadId] });
 
       // Snapshot previous value
-      const previousMessages = queryClient.getQueryData<Message[]>(['messages', threadId]);
+      const previousMessages = queryClient.getQueryData<Message[]>([
+        "messages",
+        threadId,
+      ]);
 
       // Optimistically update to show message immediately
       if (previousMessages) {
@@ -60,10 +67,10 @@ export default function ChatScreen() {
           id: `temp-${Date.now()}`,
           threadId,
           senderId: null,
-          senderEmail: 'seller@temp.com',
-          senderName: 'Seller',
+          senderEmail: "seller@temp.com",
+          senderName: "Seller",
           direction: MessageDirection.OUTBOUND,
-          subject: 'Re: Message',
+          subject: "Re: Message",
           bodyText: newMessage.text,
           bodyHtml: null,
           status: MessageStatus.PENDING,
@@ -71,7 +78,7 @@ export default function ChatScreen() {
           createdAt: new Date(),
         };
         queryClient.setQueryData<Message[]>(
-          ['messages', threadId],
+          ["messages", threadId],
           [...previousMessages, optimisticMessage]
         );
       }
@@ -80,13 +87,16 @@ export default function ChatScreen() {
     },
     onSuccess: () => {
       // Refetch to get the real message from server
-      queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
-      setMessageText('');
+      queryClient.invalidateQueries({ queryKey: ["messages", threadId] });
+      setMessageText("");
     },
     onError: (err, newMessage, context) => {
       // Rollback on error
       if (context?.previousMessages) {
-        queryClient.setQueryData(['messages', threadId], context.previousMessages);
+        queryClient.setQueryData(
+          ["messages", threadId],
+          context.previousMessages
+        );
       }
     },
   });
@@ -95,13 +105,17 @@ export default function ChatScreen() {
     mutationFn: offersApi.getSignUrl,
     onSuccess: (data, offerId) => {
       // Navigate to Dropbox Sign WebView for signing
-      navigation.navigate('DropboxSign', {
+      navigation.navigate("DropboxSign", {
         signUrl: data.signUrl,
         offerId: offerId,
       });
     },
     onError: (error: any) => {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to get signing URL. Please try again.');
+      Alert.alert(
+        "Error",
+        error.response?.data?.message ||
+          "Failed to get signing URL. Please try again."
+      );
     },
   });
 
@@ -109,29 +123,38 @@ export default function ChatScreen() {
     mutationFn: messagesApi.resend,
     onMutate: async (messageId: string) => {
       // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['messages', threadId] });
+      await queryClient.cancelQueries({ queryKey: ["messages", threadId] });
 
       // Snapshot previous value
-      const previousMessages = queryClient.getQueryData<Message[]>(['messages', threadId]);
+      const previousMessages = queryClient.getQueryData<Message[]>([
+        "messages",
+        threadId,
+      ]);
 
       // Optimistically update status to PENDING
       if (previousMessages) {
-        const updatedMessages = previousMessages.map(msg =>
+        const updatedMessages = previousMessages.map((msg) =>
           msg.id === messageId ? { ...msg, status: MessageStatus.PENDING } : msg
         );
-        queryClient.setQueryData<Message[]>(['messages', threadId], updatedMessages);
+        queryClient.setQueryData<Message[]>(
+          ["messages", threadId],
+          updatedMessages
+        );
       }
 
       return { previousMessages };
     },
     onSuccess: () => {
       // Refetch to get the updated message from server
-      queryClient.invalidateQueries({ queryKey: ['messages', threadId] });
+      queryClient.invalidateQueries({ queryKey: ["messages", threadId] });
     },
     onError: (err, messageId, context) => {
       // Rollback on error
       if (context?.previousMessages) {
-        queryClient.setQueryData(['messages', threadId], context.previousMessages);
+        queryClient.setQueryData(
+          ["messages", threadId],
+          context.previousMessages
+        );
       }
     },
   });
@@ -164,13 +187,13 @@ export default function ChatScreen() {
     switch (status) {
       case MessageStatus.SENT:
       case MessageStatus.DELIVERED:
-        return '✓'; // Checkmark for sent/delivered
+        return "✓"; // Checkmark for sent/delivered
       case MessageStatus.PENDING:
-        return '○'; // Circle for pending
+        return "○"; // Circle for pending
       case MessageStatus.FAILED:
-        return '⚠'; // Warning for failed
+        return "⚠"; // Warning for failed
       default:
-        return '';
+        return "";
     }
   };
 
@@ -178,13 +201,13 @@ export default function ChatScreen() {
     switch (status) {
       case MessageStatus.SENT:
       case MessageStatus.DELIVERED:
-        return '#4CAF50'; // Green
+        return "#4CAF50"; // Green
       case MessageStatus.PENDING:
-        return '#FFC107'; // Amber
+        return "#FFC107"; // Amber
       case MessageStatus.FAILED:
-        return '#F44336'; // Red
+        return "#F44336"; // Red
       default:
-        return '#999';
+        return "#999";
     }
   };
 
@@ -195,26 +218,37 @@ export default function ChatScreen() {
   const renderMessage = ({ item }: { item: Message }) => {
     const isOutbound = item.direction === MessageDirection.OUTBOUND;
     const isFailed = item.status === MessageStatus.FAILED;
-    const isRetrying = resendMutation.isPending && resendMutation.variables === item.id;
+    const isRetrying =
+      resendMutation.isPending && resendMutation.variables === item.id;
     const hasAttachments = item.attachments && item.attachments.length > 0;
-    const hasOffer = item.offerId && item.subCategory && 
-                     (item.subCategory === MessageSubCategory.NEW_OFFER || 
-                      item.subCategory === MessageSubCategory.UPDATED_OFFER);
+    const hasOffer =
+      item.offerId &&
+      item.subCategory &&
+      (item.subCategory === MessageSubCategory.NEW_OFFER ||
+        item.subCategory === MessageSubCategory.UPDATED_OFFER);
 
     return (
       <View style={{ marginBottom: 8 }}>
         {/* Show OfferCard if message contains an offer */}
         {hasOffer && offers && (
           <OfferCard
-            offer={offers.find(o => o.id === item.offerId)!}
-            onAccept={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'accept' })}
-            onDecline={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'decline' })}
-            onCounter={(offerId) => navigation.navigate('OfferAction', { offerId, action: 'counter' })}
-            onContinueToSign={(offerId) => continueToSignMutation.mutate(offerId)}
+            offer={offers.find((o) => o.id === item.offerId)!}
+            onAccept={(offerId) =>
+              navigation.navigate("OfferAction", { offerId, action: "accept" })
+            }
+            onDecline={(offerId) =>
+              navigation.navigate("OfferAction", { offerId, action: "decline" })
+            }
+            onCounter={(offerId) =>
+              navigation.navigate("OfferAction", { offerId, action: "counter" })
+            }
+            onContinueToSign={(offerId) =>
+              continueToSignMutation.mutate(offerId)
+            }
             onViewDocument={(offerId) => {
-              const offer = offers.find(o => o.id === offerId);
+              const offer = offers.find((o) => o.id === offerId);
               if (offer?.originalDocumentS3Key && item.attachments?.[0]) {
-                navigation.navigate('DocumentViewer', {
+                navigation.navigate("DocumentViewer", {
                   attachmentId: item.attachments[0].id,
                   filename: item.attachments[0].filename,
                 });
@@ -238,18 +272,17 @@ export default function ChatScreen() {
           )}
 
           {/* Classification badge (for debugging/admin) */}
-          {item.subCategory && item.subCategory !== MessageSubCategory.GENERAL && (
-            <View style={styles.classificationBadge}>
-              <Chip mode="flat" compact textStyle={{ fontSize: 10 }}>
-                {item.subCategory} ({Math.round(item.classificationConfidence || 0)}%)
-              </Chip>
-            </View>
-          )}
+          {item.subCategory &&
+            item.subCategory !== MessageSubCategory.GENERAL && (
+              <View style={styles.classificationBadge}>
+                <Chip mode="flat" compact textStyle={{ fontSize: 10 }}>
+                  {item.subCategory} (
+                  {Math.round(item.classificationConfidence || 0)}%)
+                </Chip>
+              </View>
+            )}
 
-          <Text style={[
-            styles.messageText,
-            isOutbound && styles.outboundText,
-          ]}>
+          <Text style={[styles.messageText, isOutbound && styles.outboundText]}>
             {item.bodyText}
           </Text>
 
@@ -260,10 +293,12 @@ export default function ChatScreen() {
                 <TouchableOpacity
                   key={att.id}
                   style={styles.attachmentChip}
-                  onPress={() => navigation.navigate('DocumentViewer', {
-                    attachmentId: att.id,
-                    filename: att.filename,
-                  })}
+                  onPress={() =>
+                    navigation.navigate("DocumentViewer", {
+                      attachmentId: att.id,
+                      filename: att.filename,
+                    })
+                  }
                 >
                   <Text style={styles.attachmentIcon}>📎</Text>
                   <Text style={styles.attachmentText} numberOfLines={1}>
@@ -275,20 +310,22 @@ export default function ChatScreen() {
           )}
 
           <View style={styles.messageFooter}>
-            <Text variant="labelSmall" style={[
-              styles.messageTime,
-              isOutbound && styles.outboundText,
-            ]}>
+            <Text
+              variant="labelSmall"
+              style={[styles.messageTime, isOutbound && styles.outboundText]}
+            >
               {new Date(item.createdAt).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
+                hour: "2-digit",
+                minute: "2-digit",
               })}
             </Text>
             {isOutbound && !isRetrying && (
-              <Text style={[
-                styles.statusIcon,
-                { color: getStatusColor(item.status) }
-              ]}>
+              <Text
+                style={[
+                  styles.statusIcon,
+                  { color: getStatusColor(item.status) },
+                ]}
+              >
                 {getStatusIcon(item.status)}
               </Text>
             )}
@@ -304,9 +341,7 @@ export default function ChatScreen() {
                 onPress={() => handleResend(item.id)}
                 disabled={resendMutation.isPending}
               >
-                <Text style={styles.resendButtonText}>
-                  Retry
-                </Text>
+                <Text style={styles.resendButtonText}>Retry</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -326,7 +361,7 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
       <FlatList
@@ -357,10 +392,12 @@ export default function ChatScreen() {
           onPress={handleSend}
           disabled={!messageText.trim() || sendMutation.isPending}
         >
-          <Text style={[
-            styles.sendIcon,
-            !messageText.trim() && styles.sendIconDisabled,
-          ]}>
+          <Text
+            style={[
+              styles.sendIcon,
+              !messageText.trim() && styles.sendIconDisabled,
+            ]}
+          >
             ➤
           </Text>
         </TouchableOpacity>
@@ -372,98 +409,98 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   messagesList: {
     padding: 16,
   },
   messageBubble: {
-    maxWidth: '75%',
+    maxWidth: "75%",
     padding: 12,
     borderRadius: 16,
     marginBottom: 8,
   },
   inboundBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff',
+    alignSelf: "flex-start",
+    backgroundColor: "#fff",
     borderBottomLeftRadius: 4,
   },
   outboundBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#2196F3',
+    alignSelf: "flex-end",
+    backgroundColor: "#2196F3",
     borderBottomRightRadius: 4,
   },
   failedBubble: {
-    backgroundColor: '#FFCDD2', // Light red for failed messages
+    backgroundColor: "#FFCDD2", // Light red for failed messages
   },
   senderName: {
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 4,
-    color: '#666',
+    color: "#666",
   },
   messageText: {
     fontSize: 16,
     lineHeight: 22,
-    color: '#000',
+    color: "#000",
   },
   outboundText: {
-    color: '#fff',
+    color: "#fff",
   },
   messageFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
     marginTop: 4,
     gap: 4,
   },
   messageTime: {
-    color: '#999',
+    color: "#999",
   },
   statusIcon: {
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   resendButton: {
     marginLeft: 8,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    backgroundColor: '#F44336',
+    backgroundColor: "#F44336",
     borderRadius: 12,
   },
   resendButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   retryingIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginLeft: 8,
     gap: 4,
   },
   retryingText: {
-    color: '#FFC107',
+    color: "#FFC107",
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   inputContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: 8,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    alignItems: 'center',
+    borderTopColor: "#e0e0e0",
+    alignItems: "center",
   },
   input: {
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -475,20 +512,20 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#2196F3',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#2196F3",
+    justifyContent: "center",
+    alignItems: "center",
   },
   sendButtonDisabled: {
     opacity: 0.3,
-    backgroundColor: '#ccc',
+    backgroundColor: "#ccc",
   },
   sendIcon: {
     fontSize: 20,
-    color: '#fff',
+    color: "#fff",
   },
   sendIconDisabled: {
-    color: '#999',
+    color: "#999",
   },
   classificationBadge: {
     marginBottom: 8,
@@ -498,9 +535,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   attachmentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     padding: 8,
     borderRadius: 8,
     gap: 6,
@@ -511,7 +548,6 @@ const styles = StyleSheet.create({
   attachmentText: {
     flex: 1,
     fontSize: 13,
-    color: '#333',
+    color: "#333",
   },
 });
-

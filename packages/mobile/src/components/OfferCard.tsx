@@ -1,10 +1,10 @@
-import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { Card, Text, Button, Chip } from 'react-native-paper';
-import { Offer, OfferStatus } from '@smart-brokerage/shared';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/AppNavigator';
+import React from "react";
+import { View, StyleSheet, TouchableOpacity } from "react-native";
+import { Card, Text, Button, Chip } from "react-native-paper";
+import { Offer, OfferStatus } from "@smart-brokerage/shared";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/AppNavigator";
 
 interface OfferCardProps {
   offer: Offer;
@@ -30,62 +30,63 @@ export default function OfferCard({
   const getStatusColor = (status: OfferStatus): string => {
     switch (status) {
       case OfferStatus.PENDING_REVIEW:
-        return '#FFC107'; // Amber
+        return "#FFC107"; // Amber
       case OfferStatus.AWAITING_SELLER_SIGNATURE:
-        return '#2196F3'; // Blue
+        return "#2196F3"; // Blue
       case OfferStatus.AWAITING_BUYER_SIGNATURE:
-        return '#9C27B0'; // Purple
+        return "#9C27B0"; // Purple
       case OfferStatus.ACCEPTED:
-        return '#4CAF50'; // Green
+        return "#4CAF50"; // Green
       case OfferStatus.DECLINED:
-        return '#F44336'; // Red
+        return "#F44336"; // Red
       case OfferStatus.COUNTERED:
-        return '#FF9800'; // Orange
+        return "#FF9800"; // Orange
       case OfferStatus.EXPIRED:
-        return '#9E9E9E'; // Gray
+        return "#9E9E9E"; // Gray
       default:
-        return '#757575';
+        return "#757575";
     }
   };
 
   const getStatusLabel = (status: OfferStatus): string => {
     switch (status) {
       case OfferStatus.PENDING_REVIEW:
-        return 'Pending Review';
+        return "Pending Review";
       case OfferStatus.AWAITING_SELLER_SIGNATURE:
-        return 'Awaiting Your Signature';
+        return "Awaiting Your Signature";
       case OfferStatus.AWAITING_BUYER_SIGNATURE:
-        return 'Awaiting Buyer Signature';
+        return "Awaiting Buyer Signature";
       case OfferStatus.ACCEPTED:
-        return 'Accepted';
+        return "Accepted";
       case OfferStatus.DECLINED:
-        return 'Declined';
+        return "Declined";
       case OfferStatus.COUNTERED:
-        return 'Counter-Offered';
+        return "Counter-Offered";
       case OfferStatus.EXPIRED:
-        return 'Expired';
+        return "Expired";
       default:
         return status;
     }
   };
 
   const formatCurrency = (amount?: number | null): string => {
-    if (!amount) return 'N/A';
+    if (!amount) return "N/A";
     return `$${amount.toLocaleString()}`;
   };
 
   const formatDate = (date?: Date | null): string => {
-    if (!date) return 'N/A';
-    return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+    if (!date) return "N/A";
+    return new Date(date).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   };
 
   const isExpired = offer.expiryDate && new Date(offer.expiryDate) < new Date();
   const isPending = offer.status === OfferStatus.PENDING_REVIEW;
-  const isAwaitingSignature = offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
+  const isAwaitingSignature =
+    offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
   const isAccepted = offer.status === OfferStatus.ACCEPTED;
   const isDeclined = offer.status === OfferStatus.DECLINED;
 
@@ -99,7 +100,10 @@ export default function OfferCard({
           </Text>
           <Chip
             mode="flat"
-            style={[styles.statusChip, { backgroundColor: getStatusColor(offer.status) }]}
+            style={[
+              styles.statusChip,
+              { backgroundColor: getStatusColor(offer.status) },
+            ]}
             textStyle={styles.statusText}
           >
             {getStatusLabel(offer.status)}
@@ -160,7 +164,7 @@ export default function OfferCard({
                 style={[styles.value, isExpired && styles.expiredText]}
               >
                 {formatDate(offer.expiryDate)}
-                {isExpired && ' (Expired)'}
+                {isExpired && " (Expired)"}
               </Text>
             </View>
           )}
@@ -270,50 +274,50 @@ const styles = StyleSheet.create({
   card: {
     marginVertical: 12,
     marginHorizontal: 8,
-    backgroundColor: '#FFF9E6', // Light yellow to stand out
+    backgroundColor: "#FFF9E6", // Light yellow to stand out
     borderLeftWidth: 4,
-    borderLeftColor: '#FFC107',
+    borderLeftColor: "#FFC107",
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 12,
   },
   title: {
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
   },
   statusChip: {
     height: 28,
   },
   statusText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   details: {
     marginBottom: 16,
     gap: 8,
   },
   detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 4,
   },
   label: {
-    color: '#666',
+    color: "#666",
     flex: 1,
   },
   value: {
-    color: '#333',
-    fontWeight: '600',
+    color: "#333",
+    fontWeight: "600",
     flex: 1,
-    textAlign: 'right',
+    textAlign: "right",
   },
   expiredText: {
-    color: '#F44336',
+    color: "#F44336",
   },
   actions: {
     marginTop: 8,
@@ -326,32 +330,31 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   secondaryActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 8,
   },
   secondaryButton: {
     flex: 1,
   },
   acceptedBanner: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: "#E8F5E9",
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
   },
   acceptedText: {
-    color: '#2E7D32',
-    textAlign: 'center',
+    color: "#2E7D32",
+    textAlign: "center",
   },
   declinedBanner: {
-    backgroundColor: '#FFEBEE',
+    backgroundColor: "#FFEBEE",
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
   },
   declinedText: {
-    color: '#C62828',
-    fontStyle: 'italic',
+    color: "#C62828",
+    fontStyle: "italic",
   },
 });
-

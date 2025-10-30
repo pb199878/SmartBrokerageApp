@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { HelloSignService } from '../../common/hellosign/hellosign.service';
-import { SupabaseService } from '../../common/supabase/supabase.service';
-import { MailgunService } from '../../common/mailgun/mailgun.service';
-import { OfferStatus, MessageSubCategory } from '@prisma/client';
-import { DeclineOfferDto, CounterOfferDto } from '@smart-brokerage/shared';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../../common/prisma/prisma.service";
+import { HelloSignService } from "../../common/hellosign/hellosign.service";
+import { SupabaseService } from "../../common/supabase/supabase.service";
+import { MailgunService } from "../../common/mailgun/mailgun.service";
+import { OfferStatus, MessageSubCategory } from "@prisma/client";
+import { DeclineOfferDto, CounterOfferDto } from "@smart-brokerage/shared";
 
 @Injectable()
 export class OffersService {
@@ -12,7 +12,7 @@ export class OffersService {
     private prisma: PrismaService,
     private helloSignService: HelloSignService,
     private supabaseService: SupabaseService,
-    private mailgunService: MailgunService,
+    private mailgunService: MailgunService
   ) {}
 
   /**
@@ -58,7 +58,7 @@ export class OffersService {
       where: {
         thread: {
           listingId: message.thread.listingId, // Same listing
-          senderId: message.thread.senderId,   // Same buyer
+          senderId: message.thread.senderId, // Same buyer
         },
         status: {
           in: [
@@ -74,22 +74,35 @@ export class OffersService {
     });
 
     if (existingActiveOfferOnListing) {
-      console.log(`⚠️  Buyer already has active offer on this listing. Handling...`);
-      
+      console.log(
+        `⚠️  Buyer already has active offer on this listing. Handling...`
+      );
+
       // Handle based on message sub-category
-      if (message.subCategory === 'UPDATED_OFFER' || message.subCategory === 'AMENDMENT') {
+      if (
+        message.subCategory === "UPDATED_OFFER" ||
+        message.subCategory === "AMENDMENT"
+      ) {
         // This is an update/amendment to existing offer - update it instead of creating new
-        console.log(`Treating as update to existing offer ${existingActiveOfferOnListing.id}`);
-        return await this.updateExistingOffer(existingActiveOfferOnListing.id, messageId);
+        console.log(
+          `Treating as update to existing offer ${existingActiveOfferOnListing.id}`
+        );
+        return await this.updateExistingOffer(
+          existingActiveOfferOnListing.id,
+          messageId
+        );
       } else {
         // New independent offer - auto-expire the old one
-        console.log(`Auto-expiring old offer ${existingActiveOfferOnListing.id} - buyer submitted new offer`);
-        
+        console.log(
+          `Auto-expiring old offer ${existingActiveOfferOnListing.id} - buyer submitted new offer`
+        );
+
         await this.prisma.offer.update({
           where: { id: existingActiveOfferOnListing.id },
           data: {
             status: OfferStatus.EXPIRED,
-            declineReason: 'Buyer submitted a new offer, previous offer automatically expired',
+            declineReason:
+              "Buyer submitted a new offer, previous offer automatically expired",
           },
         });
 
@@ -112,8 +125,12 @@ export class OffersService {
 
     // Find the primary offer document (highest relevance score)
     const offerAttachment = message.attachments
-      .filter(att => att.documentAnalysis?.oreaFormDetected)
-      .sort((a, b) => (b.documentAnalysis?.relevanceScore || 0) - (a.documentAnalysis?.relevanceScore || 0))[0];
+      .filter((att) => att.documentAnalysis?.oreaFormDetected)
+      .sort(
+        (a, b) =>
+          (b.documentAnalysis?.relevanceScore || 0) -
+          (a.documentAnalysis?.relevanceScore || 0)
+      )[0];
 
     if (offerAttachment?.documentAnalysis?.extractedData) {
       const data = offerAttachment.documentAnalysis.extractedData as any;
@@ -123,7 +140,7 @@ export class OffersService {
         closingDate = new Date(data.closingDate);
       }
       if (data.conditions && Array.isArray(data.conditions)) {
-        conditions = data.conditions.join(', ');
+        conditions = data.conditions.join(", ");
       }
       originalDocumentS3Key = offerAttachment.s3Key;
     }
@@ -162,7 +179,10 @@ export class OffersService {
   /**
    * Update existing offer with new message (for UPDATED_OFFER or AMENDMENT)
    */
-  private async updateExistingOffer(offerId: string, newMessageId: string): Promise<any> {
+  private async updateExistingOffer(
+    offerId: string,
+    newMessageId: string
+  ): Promise<any> {
     const newMessage = await this.prisma.message.findUnique({
       where: { id: newMessageId },
       include: {
@@ -182,19 +202,23 @@ export class OffersService {
     let updateData: any = {};
 
     const offerAttachment = newMessage.attachments
-      .filter(att => att.documentAnalysis?.oreaFormDetected)
-      .sort((a, b) => (b.documentAnalysis?.relevanceScore || 0) - (a.documentAnalysis?.relevanceScore || 0))[0];
+      .filter((att) => att.documentAnalysis?.oreaFormDetected)
+      .sort(
+        (a, b) =>
+          (b.documentAnalysis?.relevanceScore || 0) -
+          (a.documentAnalysis?.relevanceScore || 0)
+      )[0];
 
     if (offerAttachment?.documentAnalysis?.extractedData) {
       const data = offerAttachment.documentAnalysis.extractedData as any;
-      
+
       if (data.price !== undefined) updateData.price = data.price;
       if (data.deposit !== undefined) updateData.deposit = data.deposit;
       if (data.closingDate) updateData.closingDate = new Date(data.closingDate);
       if (data.conditions && Array.isArray(data.conditions)) {
-        updateData.conditions = data.conditions.join(', ');
+        updateData.conditions = data.conditions.join(", ");
       }
-      
+
       // Update the document reference
       updateData.originalDocumentS3Key = offerAttachment.s3Key;
     }
@@ -262,7 +286,7 @@ export class OffersService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -270,12 +294,16 @@ export class OffersService {
   /**
    * Accept offer - Creates Dropbox Sign embedded signature request
    */
-  async acceptOffer(offerId: string): Promise<{ signUrl: string; expiresAt: number }> {
+  async acceptOffer(
+    offerId: string
+  ): Promise<{ signUrl: string; expiresAt: number }> {
     const offer = await this.getOffer(offerId);
 
     // Validate offer can be accepted
     if (offer.status !== OfferStatus.PENDING_REVIEW) {
-      throw new Error(`Offer cannot be accepted. Current status: ${offer.status}`);
+      throw new Error(
+        `Offer cannot be accepted. Current status: ${offer.status}`
+      );
     }
 
     // Check if offer has expired
@@ -284,40 +312,41 @@ export class OffersService {
         where: { id: offerId },
         data: { status: OfferStatus.EXPIRED },
       });
-      throw new Error('Offer has expired');
+      throw new Error("Offer has expired");
     }
 
     // Get the original offer document from Supabase
     if (!offer.originalDocumentS3Key) {
-      throw new Error('No offer document found');
+      throw new Error("No offer document found");
     }
 
     const signedUrl = await this.supabaseService.getSignedUrl(
-      'attachments',
+      "attachments",
       offer.originalDocumentS3Key,
-      3600, // 1 hour
+      3600 // 1 hour
     );
 
     // Create embedded signature request for seller
     // This must succeed before we update the offer status
-    const signatureRequest = await this.helloSignService.createEmbeddedSignatureRequest({
-      title: `Accept Offer - ${offer.thread.listing.address}`,
-      subject: `Acceptance of Offer for ${offer.thread.listing.address}`,
-      message: 'Please review and sign to accept this offer.',
-      signers: [
-        {
-          emailAddress: `seller-${offer.thread.listing.sellerId}@temp.com`, // Placeholder email for embedded signing
-          name: 'Seller',
-          order: 0,
+    const signatureRequest =
+      await this.helloSignService.createEmbeddedSignatureRequest({
+        title: `Accept Offer - ${offer.thread.listing.address}`,
+        subject: `Acceptance of Offer for ${offer.thread.listing.address}`,
+        message: "Please review and sign to accept this offer.",
+        signers: [
+          {
+            emailAddress: `seller-${offer.thread.listing.sellerId}@temp.com`, // Placeholder email for embedded signing
+            name: "Seller",
+            order: 0,
+          },
+        ],
+        fileUrl: signedUrl,
+        metadata: {
+          offerId: offer.id,
+          threadId: offer.threadId,
+          action: "accept",
         },
-      ],
-      fileUrl: signedUrl,
-      metadata: {
-        offerId: offer.id,
-        threadId: offer.threadId,
-        action: 'accept',
-      },
-    });
+      });
 
     // Only update status AFTER successful signature request creation
     await this.prisma.offer.update({
@@ -329,6 +358,10 @@ export class OffersService {
     });
 
     console.log(`✅ Created signature request for offer ${offerId}`);
+    console.log(`   Sign URL: ${signatureRequest.signUrl}`);
+    console.log(
+      `   Expires: ${new Date(signatureRequest.expiresAt * 1000).toISOString()}`
+    );
 
     return {
       signUrl: signatureRequest.signUrl,
@@ -339,7 +372,9 @@ export class OffersService {
   /**
    * Get signing URL for an offer that's awaiting seller signature
    */
-  async getSignUrl(offerId: string): Promise<{ signUrl: string; expiresAt: number }> {
+  async getSignUrl(
+    offerId: string
+  ): Promise<{ signUrl: string; expiresAt: number }> {
     const offer = await this.getOffer(offerId);
 
     // Validate offer is in correct state
@@ -348,24 +383,26 @@ export class OffersService {
     }
 
     if (!offer.hellosignSignatureRequestId) {
-      throw new Error('No signature request found for this offer');
+      throw new Error("No signature request found for this offer");
     }
 
     // Get the signature request from HelloSign to retrieve the signature_id
     const signatureRequest = await this.helloSignService.getSignatureRequest(
-      offer.hellosignSignatureRequestId,
+      offer.hellosignSignatureRequestId
     );
 
     // Find the seller's signature (first signer)
     const signatures = signatureRequest.signatures;
     if (!signatures || signatures.length === 0) {
-      throw new Error('No signatures found in signature request');
+      throw new Error("No signatures found in signature request");
     }
 
     const signatureId = signatures[0].signature_id;
 
     // Get fresh embedded signing URL
-    const signUrlResponse = await this.helloSignService.getEmbeddedSignUrl(signatureId);
+    const signUrlResponse = await this.helloSignService.getEmbeddedSignUrl(
+      signatureId
+    );
 
     return {
       signUrl: signUrlResponse.signUrl,
@@ -404,9 +441,13 @@ export class OffersService {
     const offer = await this.getOffer(dto.offerId);
 
     // Validate offer can be declined (allow from PENDING_REVIEW or AWAITING_SELLER_SIGNATURE)
-    if (offer.status !== OfferStatus.PENDING_REVIEW && 
-        offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
-      throw new Error(`Offer cannot be declined. Current status: ${offer.status}`);
+    if (
+      offer.status !== OfferStatus.PENDING_REVIEW &&
+      offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
+    ) {
+      throw new Error(
+        `Offer cannot be declined. Current status: ${offer.status}`
+      );
     }
 
     // Update offer status
@@ -419,12 +460,16 @@ export class OffersService {
     });
 
     // Send email notification to buyer agent
-    const domain = process.env.MAILGUN_DOMAIN || '';
+    const domain = process.env.MAILGUN_DOMAIN || "";
     await this.mailgunService.sendEmail(
       `${offer.thread.listing.emailAlias}@${domain}`,
       offer.thread.sender.email,
       `Re: ${offer.thread.subject}`,
-      `Thank you for your offer on ${offer.thread.listing.address}. Unfortunately, we are declining at this time.${dto.reason ? `\n\nReason: ${dto.reason}` : ''}`,
+      `Thank you for your offer on ${
+        offer.thread.listing.address
+      }. Unfortunately, we are declining at this time.${
+        dto.reason ? `\n\nReason: ${dto.reason}` : ""
+      }`
     );
 
     console.log(`✅ Declined offer ${dto.offerId}`);
@@ -435,13 +480,19 @@ export class OffersService {
   /**
    * Create counter-offer
    */
-  async counterOffer(dto: CounterOfferDto): Promise<{ signUrl: string; expiresAt: number }> {
+  async counterOffer(
+    dto: CounterOfferDto
+  ): Promise<{ signUrl: string; expiresAt: number }> {
     const offer = await this.getOffer(dto.offerId);
 
     // Validate offer can be countered (allow from PENDING_REVIEW or AWAITING_SELLER_SIGNATURE)
-    if (offer.status !== OfferStatus.PENDING_REVIEW && 
-        offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE) {
-      throw new Error(`Offer cannot be countered. Current status: ${offer.status}`);
+    if (
+      offer.status !== OfferStatus.PENDING_REVIEW &&
+      offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
+    ) {
+      throw new Error(
+        `Offer cannot be countered. Current status: ${offer.status}`
+      );
     }
 
     // TODO: Generate counter-offer PDF document from template
@@ -450,8 +501,8 @@ export class OffersService {
 
     // Create counter-offer as a new message + offer record
     // In real implementation, you'd generate a Form 221 PDF here
-    console.log('⚠️  Counter-offer PDF generation not yet implemented');
-    console.log('Counter-offer details:', dto);
+    console.log("⚠️  Counter-offer PDF generation not yet implemented");
+    console.log("Counter-offer details:", dto);
 
     // Update original offer status
     await this.prisma.offer.update({
@@ -464,7 +515,7 @@ export class OffersService {
     // For now, return a stub response
     // TODO: Create actual Dropbox Sign signature request with generated PDF
     return {
-      signUrl: 'https://placeholder.com/sign',
+      signUrl: "https://placeholder.com/sign",
       expiresAt: Date.now() + 3600000,
     };
   }
@@ -474,39 +525,48 @@ export class OffersService {
    */
   async handleWebhook(payload: any): Promise<void> {
     // Log full payload for debugging
-    console.log('📝 Dropbox Sign webhook payload:', JSON.stringify(payload, null, 2));
+    console.log(
+      "📝 Dropbox Sign webhook payload:",
+      JSON.stringify(payload, null, 2)
+    );
 
     // Dropbox Sign sends event data directly in payload, not nested under 'event'
     const event = payload.event || payload;
-    
+
     if (!event) {
-      console.error('❌ No event data in webhook payload');
+      console.error("❌ No event data in webhook payload");
       return;
     }
 
     const eventType = event.event_type || payload.event_type;
     const eventTime = event.event_time || payload.event_time;
     const eventHash = event.event_hash || payload.event_hash;
-    const signatureRequest = event.signature_request || payload.signature_request;
+    const signatureRequest =
+      event.signature_request || payload.signature_request;
 
     if (!signatureRequest) {
-      console.error('❌ No signature_request in webhook payload');
-      console.log('Available keys:', Object.keys(payload));
+      console.error("❌ No signature_request in webhook payload");
+      console.log("Available keys:", Object.keys(payload));
       return;
     }
 
     console.log(`📝 Dropbox Sign webhook: ${eventType}`);
 
     // Verify webhook signature (in production)
-    if (process.env.NODE_ENV === 'production' && eventTime && eventType && eventHash) {
+    if (
+      process.env.NODE_ENV === "production" &&
+      eventTime &&
+      eventType &&
+      eventHash
+    ) {
       const isValid = this.helloSignService.verifyWebhookSignature(
         eventTime,
         eventType,
-        eventHash,
+        eventHash
       );
 
       if (!isValid) {
-        console.error('❌ Invalid Dropbox Sign webhook signature');
+        console.error("❌ Invalid Dropbox Sign webhook signature");
         return;
       }
     }
@@ -527,21 +587,23 @@ export class OffersService {
     });
 
     if (!offer) {
-      console.warn(`No offer found for signature request ${signatureRequestId}`);
+      console.warn(
+        `No offer found for signature request ${signatureRequestId}`
+      );
       return;
     }
 
     // Handle different webhook events
     switch (eventType) {
-      case 'signature_request_signed':
+      case "signature_request_signed":
         await this.handleSignatureCompleted(offer, signatureRequest);
         break;
 
-      case 'signature_request_all_signed':
+      case "signature_request_all_signed":
         await this.handleAllSignaturesCompleted(offer, signatureRequest);
         break;
 
-      case 'signature_request_declined':
+      case "signature_request_declined":
         await this.handleSignatureDeclined(offer);
         break;
 
@@ -553,7 +615,10 @@ export class OffersService {
   /**
    * Handle single signature completed
    */
-  private async handleSignatureCompleted(offer: any, signatureRequest: any): Promise<void> {
+  private async handleSignatureCompleted(
+    offer: any,
+    signatureRequest: any
+  ): Promise<void> {
     console.log(`✅ Signature completed for offer ${offer.id}`);
 
     // Update seller signed timestamp
@@ -568,17 +633,25 @@ export class OffersService {
   /**
    * Handle all signatures completed
    */
-  private async handleAllSignaturesCompleted(offer: any, signatureRequest: any): Promise<void> {
+  private async handleAllSignaturesCompleted(
+    offer: any,
+    signatureRequest: any
+  ): Promise<void> {
     console.log(`✅ All signatures completed for offer ${offer.id}`);
 
     // Download signed document
     const signedDoc = await this.helloSignService.downloadSignedDocument(
-      signatureRequest.signature_request_id,
+      signatureRequest.signature_request_id
     );
 
     // Upload to Supabase
     const s3Key = `signed-offers/${offer.thread.listingId}/${offer.threadId}/${offer.id}/signed.pdf`;
-    await this.supabaseService.uploadFile('attachments', s3Key, signedDoc, 'application/pdf');
+    await this.supabaseService.uploadFile(
+      "attachments",
+      s3Key,
+      signedDoc,
+      "application/pdf"
+    );
 
     // Update offer status
     await this.prisma.offer.update({
@@ -590,7 +663,7 @@ export class OffersService {
     });
 
     // Send signed document to buyer agent via email
-    const domain = process.env.MAILGUN_DOMAIN || '';
+    const domain = process.env.MAILGUN_DOMAIN || "";
     await this.mailgunService.sendEmail(
       `${offer.thread.listing.emailAlias}@${domain}`,
       offer.thread.sender.email,
@@ -599,11 +672,13 @@ export class OffersService {
       undefined, // no HTML
       offer.thread.emailThreadId,
       undefined, // no references for now
-      undefined, // no custom message ID
+      undefined // no custom message ID
       // TODO: Attach signed PDF to email
     );
 
-    console.log(`✅ Offer ${offer.id} accepted and signed document sent to buyer agent`);
+    console.log(
+      `✅ Offer ${offer.id} accepted and signed document sent to buyer agent`
+    );
   }
 
   /**
@@ -629,11 +704,15 @@ export class OffersService {
     const changes: string[] = [];
 
     if (dto.price !== undefined && dto.price !== offer.price) {
-      changes.push(`Purchase Price: $${offer.price?.toLocaleString()} → $${dto.price.toLocaleString()}`);
+      changes.push(
+        `Purchase Price: $${offer.price?.toLocaleString()} → $${dto.price.toLocaleString()}`
+      );
     }
 
     if (dto.deposit !== undefined && dto.deposit !== offer.deposit) {
-      changes.push(`Deposit: $${offer.deposit?.toLocaleString()} → $${dto.deposit.toLocaleString()}`);
+      changes.push(
+        `Deposit: $${offer.deposit?.toLocaleString()} → $${dto.deposit.toLocaleString()}`
+      );
     }
 
     if (dto.closingDate) {
@@ -644,7 +723,9 @@ export class OffersService {
       changes.push(`Conditions: ${dto.conditions}`);
     }
 
-    return `Counter-Offer for ${offer.thread.listing.address}\n\n${changes.join('\n')}`;
+    return `Counter-Offer for ${offer.thread.listing.address}\n\n${changes.join(
+      "\n"
+    )}`;
   }
 
   /**
@@ -658,7 +739,10 @@ export class OffersService {
           lt: new Date(),
         },
         status: {
-          in: [OfferStatus.PENDING_REVIEW, OfferStatus.AWAITING_SELLER_SIGNATURE],
+          in: [
+            OfferStatus.PENDING_REVIEW,
+            OfferStatus.AWAITING_SELLER_SIGNATURE,
+          ],
         },
       },
       data: {
@@ -670,4 +754,3 @@ export class OffersService {
     return result.count;
   }
 }
-

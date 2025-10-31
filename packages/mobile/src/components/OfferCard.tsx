@@ -13,6 +13,9 @@ interface OfferCardProps {
   onCounter?: (offerId: string) => void;
   onViewDocument?: (offerId: string) => void;
   onContinueToSign?: (offerId: string) => void;
+  onReviewAndSign?: (offerId: string) => void; // New: Navigate to APS review
+  listingId?: string; // For navigation context
+  attachmentId?: string; // For APS document
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -24,6 +27,9 @@ export default function OfferCard({
   onCounter,
   onViewDocument,
   onContinueToSign,
+  onReviewAndSign,
+  listingId,
+  attachmentId,
 }: OfferCardProps) {
   const navigation = useNavigation<NavigationProp>();
 
@@ -192,11 +198,12 @@ export default function OfferCard({
               <>
                 <Button
                   mode="contained"
-                  onPress={() => onAccept?.(offer.id)}
+                  onPress={() => onReviewAndSign?.(offer.id)}
                   style={[styles.actionButton, styles.acceptButton]}
                   buttonColor="#4CAF50"
+                  icon="file-document-edit"
                 >
-                  Accept & Sign
+                  Review & Sign APS
                 </Button>
 
                 <View style={styles.secondaryActions}>

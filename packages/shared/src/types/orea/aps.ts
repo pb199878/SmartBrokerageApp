@@ -23,61 +23,49 @@ export enum SignatureRequestStatus {
   ERROR = 'ERROR',
 }
 
-// OREA APS intake data structure (seller's responses)
+// OREA APS intake data structure (seller's responses + buyer offer details)
+// Note: Most fields are prefilled from listing/extracted from buyer's offer
 export interface ApsIntake {
-  // Property details
+  // Property information (from listing/buyer offer)
   propertyAddress?: string;
   legalDescription?: string;
   
-  // Financial terms
+  // Financial details (from buyer's offer)
   purchasePrice?: number;
   depositAmount?: number;
-  depositDueDate?: Date | string;
+  depositDueDate?: string;
   
-  // Dates
-  completionDate?: Date | string;
-  possessionDate?: Date | string;
+  // Dates (from buyer's offer)
+  completionDate?: string;
+  possessionDate?: string;
   
-  // Inclusions/Exclusions
-  inclusions?: string;
-  exclusions?: string;
-  
-  // Fixtures and Chattels
-  fixtures?: string;
-  chattels?: string;
-  
-  // Rental items
-  rentalItems?: string;
-  
-  // Seller representations
-  sellerWarranties?: {
-    complianceWithLaws?: boolean;
-    noLegalActions?: boolean;
-    noConflictingAgreements?: boolean;
-    propertyTaxesCurrent?: boolean;
-  };
-  
-  // Additional terms
-  additionalTerms?: string;
-  
-  // HST information
-  hstApplicable?: boolean;
-  hstIncluded?: boolean;
-  
-  // Title search
-  titleSearchAllowedDays?: number;
-  
-  // Seller information
-  sellerLegalName?: string;
+  // Seller information (PREFILLED from listing/user profile)
+  sellerLegalName?: string; // Prefilled, seller can edit if needed
   sellerAddress?: string;
   sellerPhone?: string;
+  sellerEmail?: string;
   
-  // Lawyer information
+  // Lawyer information (PREFILLED from listing)
   lawyerName?: string;
   lawyerFirm?: string;
   lawyerAddress?: string;
   lawyerPhone?: string;
   lawyerEmail?: string;
+  
+  // Inclusions/Exclusions
+  inclusions?: string; // Chattels included (from buyer's offer)
+  exclusions?: string; // Fixtures excluded (seller fills this)
+  fixtures?: string; // Fixtures (from buyer's offer)
+  chattels?: string; // Chattels (from buyer's offer)
+  
+  // Optional: Rental items buyer needs to know about
+  rentalItems?: string; // e.g., "Hot water tank ($25/month)"
+  
+  // Additional terms
+  additionalTerms?: string;
+  
+  // Optional: Additional notes from seller
+  sellerNotes?: string;
 }
 
 // API request/response types

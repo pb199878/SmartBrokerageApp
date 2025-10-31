@@ -133,6 +133,26 @@ export class OffersService {
           (a.documentAnalysis?.relevanceScore || 0)
       )[0];
 
+    // Check validation status - auto-reject if failed
+    const validationStatus =
+      offerAttachment?.documentAnalysis?.validationStatus;
+    if (validationStatus === "failed") {
+      const validationErrors = Array.isArray(
+        offerAttachment.documentAnalysis.validationErrors
+      )
+        ? offerAttachment.documentAnalysis.validationErrors
+        : [];
+      console.log(`❌ Offer validation failed. Auto-rejecting...`);
+      await this.autoRejectInvalidOffer(
+        message,
+        offerAttachment,
+        validationErrors
+      );
+      throw new Error(
+        "Offer automatically rejected due to validation failures"
+      );
+    }
+
     if (offerAttachment?.documentAnalysis?.extractedData) {
       const data = offerAttachment.documentAnalysis.extractedData as any;
       price = data.price;
@@ -792,5 +812,86 @@ export class OffersService {
 
     console.log(`Expired ${result.count} offer(s)`);
     return result.count;
+  }
+
+  /**
+   * Auto-reject an offer due to validation failures
+   * Sends rejection email to buyer agent and updates message subCategory
+   */
+  private async autoRejectInvalidOffer(
+    message: any,
+    attachment: any,
+    validationErrors: any[]
+  ): Promise<void> {
+    console.log(`📧 Sending rejection email for invalid offer...`);
+
+    // Get thread and listing info for email
+    const thread = message.thread;
+    const listing = thread?.listing;
+    const sender = thread?.sender;
+
+    if (!listing || !sender) {
+      console.error(
+        "❌ Cannot send rejection email: missing listing or sender info"
+      );
+      return;
+    }
+
+    // Format validation errors for email
+    const errorList = validationErrors
+      .map((err) => `❌ ${err.field}: ${err.message}`)
+      .join("\n");
+
+    // Create email body
+    const emailSubject = `Offer Submission Issue - ${listing.address}`;
+    const emailBody = `Dear Agent,
+
+Your offer submission for ${listing.address} could not be accepted due to the following validation issues:
+
+${errorList}
+
+Please ensure:
+✓ All buyer signatures are present
+✓ Purchase price is filled in
+✓ All required fields are completed
+
+Reply to this email with the corrected OREA Form 100.
+
+Best regards,
+Smart Brokerage Platform`;
+
+    // Send rejection email
+    try {
+      const domain = process.env.MAILGUN_DOMAIN || "";
+      await this.mailgunService.sendEmail(
+        `${listing.emailAlias}@${domain}`,
+        sender.email,
+        emailSubject,
+        emailBody,
+        undefined, // no HTML
+        thread.emailThreadId, // In-Reply-To
+        undefined, // no references for now
+        undefined // no custom message ID
+      );
+
+      console.log(`✅ Rejection email sent to ${sender.email}`);
+    } catch (error: any) {
+      console.error(`❌ Failed to send rejection email:`, error.message);
+    }
+
+    // Update message subCategory to mark as invalid
+    try {
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: {
+          subCategory: MessageSubCategory.GENERAL, // Mark as general/invalid
+          // Could add a note in the message or create a custom subCategory
+        },
+      });
+
+      console.log(`✅ Message ${message.id} marked as invalid offer`);
+    } catch (error: any) {
+      console.error(`❌ Failed to update message:`, error.message);
+    }
   }
 }

@@ -10,6 +10,7 @@ import DocumentViewerScreen from '../screens/DocumentViewerScreen';
 import OfferActionScreen from '../screens/OfferActionScreen';
 import DropboxSignWebViewScreen from '../screens/DropboxSignWebViewScreen';
 import ApsGuidedFormScreen from '../screens/ApsGuidedFormScreen';
+import ApsReviewScreen from '../screens/ApsReviewScreen';
 import ApsSigningScreen from '../screens/ApsSigningScreen';
 
 export type RootStackParamList = {
@@ -25,6 +26,13 @@ export type RootStackParamList = {
     attachmentId: string;
     sellerEmail: string;
     sellerName?: string;
+  };
+  ApsReview: {
+    listingId: string;
+    attachmentId: string;
+    sellerEmail: string;
+    sellerName?: string;
+    buyerDetails?: any; // Optional: buyer's offer details from parsed APS
   };
   ApsSigning: {
     agreementId: string;
@@ -98,6 +106,14 @@ export default function AppNavigator() {
           component={ApsGuidedFormScreen}
           options={{
             title: 'Complete APS Details',
+            headerBackTitle: 'Back',
+          }}
+        />
+        <Stack.Screen 
+          name="ApsReview" 
+          component={ApsReviewScreen}
+          options={{
+            title: 'Review APS',
             headerBackTitle: 'Back',
           }}
         />

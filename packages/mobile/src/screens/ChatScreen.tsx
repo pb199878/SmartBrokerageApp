@@ -35,6 +35,12 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const queryClient = useQueryClient();
 
+  // Fetch thread details to get listingId
+  const { data: thread } = useQuery({
+    queryKey: ["thread", threadId],
+    queryFn: () => threadsApi.getById(threadId),
+  });
+
   const { data: messages, isLoading } = useQuery({
     queryKey: ["messages", threadId],
     queryFn: () => threadsApi.getMessages(threadId),
@@ -242,6 +248,8 @@ export default function ChatScreen() {
         {currentOffer && (
           <OfferCard
             offer={currentOffer}
+            listingId={thread?.listingId}
+            attachmentId={item.attachments?.[0]?.id}
             onAccept={(offerId) =>
               navigation.navigate("OfferAction", { offerId, action: "accept" })
             }
@@ -254,6 +262,37 @@ export default function ChatScreen() {
             onContinueToSign={(offerId) =>
               continueToSignMutation.mutate(offerId)
             }
+            onReviewAndSign={(offerId) => {
+              // Navigate to APS review screen with buyer details from offer
+              const offer = offers?.find((o) => o.id === offerId);
+              if (!thread?.listingId) {
+                console.error("No listingId available for APS review");
+                return;
+              }
+              navigation.navigate("ApsReview", {
+                listingId: thread.listingId,
+                attachmentId: item.attachments?.[0]?.id || "unknown",
+                sellerEmail: "seller@example.com", // TODO: Get from user context
+                sellerName: "Seller Name", // TODO: Get from user context
+                buyerDetails: offer
+                  ? {
+                      purchasePrice: offer.price || 0,
+                      deposit: offer.deposit || 0,
+                      depositDue: "Within 24 hours of acceptance",
+                      closingDate: offer.closingDate
+                        ? new Date(offer.closingDate)
+                        : new Date(),
+                      possessionDate: offer.closingDate
+                        ? new Date(offer.closingDate)
+                        : new Date(),
+                      conditions: offer.conditions || "As per APS document",
+                      inclusions: "As per APS document", // TODO: Parse from document analysis
+                      buyerName: "As per APS document", // TODO: Parse from document analysis
+                      buyerLawyer: "As per APS document", // TODO: Parse from document analysis
+                    }
+                  : undefined,
+              });
+            }}
             onViewDocument={(offerId) => {
               const offer = offers?.find((o) => o.id === offerId);
               if (offer?.originalDocumentS3Key && item.attachments?.[0]) {
@@ -373,6 +412,23 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      {/* TEMPORARY: Test button for APS Review */}
+      {thread?.listingId && (
+        <TouchableOpacity
+          style={styles.testApsButton}
+          onPress={() => {
+            navigation.navigate("ApsReview", {
+              listingId: thread.listingId,
+              attachmentId: "test-attachment-123",
+              sellerEmail: "seller@test.com",
+              sellerName: "Test Seller",
+            });
+          }}
+        >
+          <Text style={styles.testApsButtonText}>🧪 Test APS Review</Text>
+        </TouchableOpacity>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -558,5 +614,25 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: "#333",
+  },
+  testApsButton: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "#FF9800",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  testApsButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

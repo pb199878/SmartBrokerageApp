@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
+import { DocuPipeService } from "../../common/docupipe/docupipe.service";
+import { DocuPipeOREAForm100Response } from "../../common/docupipe/types";
 import axios from "axios";
 
 interface OREAFormDetectionResult {
@@ -11,21 +13,71 @@ interface OREAFormDetectionResult {
 }
 
 interface ExtractedOfferData {
-  price?: number;
+  // Financial
+  price?: number; // Legacy field, maps to purchasePrice
+  purchasePrice?: number;
   deposit?: number;
+  depositDue?: string;
+  balanceDueOnClosing?: number;
+
+  // Dates
   closingDate?: string;
-  expiryDate?: string;
-  conditions?: string[];
-  buyers?: string[];
-  sellers?: string[];
+  expiryDate?: string; // Legacy field, maps to irrevocableDate
+  possessionDate?: string;
+  irrevocableDate?: string;
+
+  // Buyer Info
+  buyers?: string[]; // Legacy field
+  buyerName?: string;
+  buyerAddress?: string;
+  buyerPhone?: string;
+  buyerEmail?: string;
+
+  // Buyer's Lawyer
+  buyerLawyer?: string;
+  buyerLawyerAddress?: string;
+  buyerLawyerPhone?: string;
+  buyerLawyerEmail?: string;
+
+  // Property & Terms
+  sellers?: string[]; // Legacy field
   propertyAddress?: string;
+  inclusions?: string;
+  exclusions?: string;
+  conditions?: string[];
+
+  // Condition Details
+  financingCondition?: boolean;
+  inspectionCondition?: boolean;
+  saleOfPropertyCondition?: boolean;
+  conditionWaiverDate?: string;
+
+  // Agent Info
+  buyerAgentName?: string;
+  buyerAgentBrokerage?: string;
+
+  // Signatures
+  buyerSignature1Detected?: boolean;
+  buyerSignature2Detected?: boolean;
+  buyerSignedDate?: string;
+}
+
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+interface ValidationResult {
+  validationStatus: "passed" | "failed";
+  errors: ValidationError[];
 }
 
 @Injectable()
 export class DocumentsService {
   constructor(
     private prisma: PrismaService,
-    private supabaseService: SupabaseService
+    private supabaseService: SupabaseService,
+    private docuPipeService: DocuPipeService
   ) {}
 
   /**
@@ -68,8 +120,72 @@ export class DocumentsService {
 
       // Extract offer data if it's an OREA form
       let extractedData: ExtractedOfferData | null = null;
+      let docupipeJobId: string | undefined;
+      let formFieldsExtracted: any = undefined;
+      let validationStatus: string | undefined;
+      let validationErrors: any = undefined;
+      let hasRequiredSignatures: boolean | undefined;
+      let priceMatchesExtracted: boolean | undefined;
+
       if (oreaDetection.isOREAForm) {
+        // First, do basic extraction from text
         extractedData = this.extractOfferData(textContent);
+
+        // Then, if DocuPipe is configured, use it for comprehensive extraction and validation
+        if (process.env.DOCUPIPE_API_KEY) {
+          try {
+            console.log("🔍 Using DocuPipe for comprehensive extraction...");
+
+            const docupipeResult = await this.docuPipeService.analyzeAndExtract(
+              pdfBuffer
+            );
+            docupipeJobId = docupipeResult.jobId;
+            formFieldsExtracted = docupipeResult.rawResponse;
+
+            // Merge DocuPipe extraction with basic extraction (DocuPipe takes precedence)
+            extractedData = {
+              ...extractedData,
+              ...docupipeResult.extractedData,
+            };
+
+            // Also set legacy fields for backward compatibility
+            if (extractedData.purchasePrice) {
+              extractedData.price = extractedData.purchasePrice;
+            }
+            if (extractedData.irrevocableDate) {
+              extractedData.expiryDate = extractedData.irrevocableDate;
+            }
+
+            // Validate the form
+            const validation = this.validateOREAForm(
+              docupipeResult.rawResponse
+            );
+            validationStatus = validation.validationStatus;
+            validationErrors =
+              validation.errors.length > 0 ? validation.errors : undefined;
+            hasRequiredSignatures =
+              extractedData.buyerSignature1Detected || false;
+            priceMatchesExtracted = extractedData.purchasePrice
+              ? extractedData.purchasePrice > 0
+              : false;
+
+            console.log(
+              `✅ DocuPipe extraction complete. Validation: ${validationStatus}`
+            );
+          } catch (error: any) {
+            console.error(
+              "❌ DocuPipe extraction failed, using fallback:",
+              error.message
+            );
+            // Continue with basic extraction
+            validationStatus = "not_validated";
+          }
+        } else {
+          console.log(
+            "⚠️  DocuPipe not configured, using basic extraction only"
+          );
+          validationStatus = "not_validated";
+        }
       }
 
       // Calculate relevance score
@@ -93,6 +209,15 @@ export class DocumentsService {
             : undefined,
           textContent,
           pageCount,
+          // Validation fields
+          validationStatus,
+          validationErrors,
+          hasRequiredSignatures,
+          priceMatchesExtracted,
+          docupipeJobId,
+          formFieldsExtracted: formFieldsExtracted
+            ? JSON.parse(JSON.stringify(formFieldsExtracted))
+            : undefined,
         },
       });
 
@@ -398,5 +523,89 @@ export class DocumentsService {
   async isAnalyzed(attachmentId: string): Promise<boolean> {
     const analysis = await this.getAnalysis(attachmentId);
     return analysis !== null;
+  }
+
+  /**
+   * Validate OREA Form based on DocuPipe extracted data
+   * Checks for required signatures, purchase price, and other critical fields
+   */
+  validateOREAForm(
+    docupipeData: DocuPipeOREAForm100Response
+  ): ValidationResult {
+    const errors: ValidationError[] = [];
+
+    // 1. Check for buyer signature
+    const buyerSignatures = docupipeData.signatures?.buyer || [];
+    const hasBuyerSignature =
+      buyerSignatures.length > 0 &&
+      !!buyerSignatures[0]?.name &&
+      buyerSignatures[0].name.trim() !== "";
+
+    if (!hasBuyerSignature) {
+      errors.push({
+        field: "signatures.buyer",
+        message: "Buyer signature is required",
+      });
+    }
+
+    // 2. Check for purchase price
+    const purchasePrice = docupipeData.financialDetails?.purchasePrice?.amount;
+    if (!purchasePrice || purchasePrice <= 0) {
+      errors.push({
+        field: "financialDetails.purchasePrice",
+        message: "Purchase price must be filled in and greater than zero",
+      });
+    }
+
+    // 3. Check for deposit
+    const deposit = docupipeData.financialDetails?.deposit?.amount;
+    if (deposit === undefined || deposit === null) {
+      errors.push({
+        field: "financialDetails.deposit",
+        message: "Deposit amount must be specified",
+      });
+    }
+
+    // 4. Check for closing date
+    const closingDate = docupipeData.terms?.completion?.date;
+    if (
+      !closingDate ||
+      !closingDate.day ||
+      !closingDate.month ||
+      !closingDate.year
+    ) {
+      errors.push({
+        field: "terms.completion.date",
+        message: "Closing date must be specified",
+      });
+    }
+
+    // 5. Check for buyer name
+    const buyerName = docupipeData.parties?.buyer;
+    if (!buyerName || buyerName.trim() === "") {
+      errors.push({
+        field: "parties.buyer",
+        message: "Buyer name must be specified",
+      });
+    }
+
+    // Determine validation status
+    const validationStatus = errors.length === 0 ? "passed" : "failed";
+
+    if (validationStatus === "failed") {
+      console.log(
+        `❌ OREA Form validation failed with ${errors.length} error(s):`
+      );
+      errors.forEach((err) => {
+        console.log(`   - ${err.field}: ${err.message}`);
+      });
+    } else {
+      console.log("✅ OREA Form validation passed");
+    }
+
+    return {
+      validationStatus,
+      errors,
+    };
   }
 }

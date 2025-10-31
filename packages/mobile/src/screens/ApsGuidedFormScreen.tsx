@@ -18,25 +18,20 @@ export default function ApsGuidedFormScreen() {
   const prepareMutation = usePrepareAgreement();
   const guidanceSections = getGuidanceBySections();
 
-  // Form state
+  // Form state - Only seller-specific fields
   const [formData, setFormData] = useState<ApsIntake>({
-    purchasePrice: undefined,
-    depositAmount: undefined,
-    completionDate: undefined,
-    possessionDate: undefined,
-    inclusions: '',
-    exclusions: '',
-    fixtures: '',
-    chattels: '',
-    rentalItems: '',
     sellerLegalName: sellerName || '',
     sellerAddress: '',
     sellerPhone: '',
+    sellerEmail: sellerEmail || '',
     lawyerName: '',
     lawyerFirm: '',
     lawyerAddress: '',
     lawyerPhone: '',
     lawyerEmail: '',
+    exclusions: '',
+    rentalItems: '',
+    sellerNotes: '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,19 +51,12 @@ export default function ApsGuidedFormScreen() {
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // Required fields
-    if (!formData.sellerLegalName) {
-      newErrors.sellerLegalName = 'Legal name is required';
-    }
-    if (!formData.sellerAddress) {
-      newErrors.sellerAddress = 'Address is required';
-    }
-    if (!formData.sellerPhone) {
-      newErrors.sellerPhone = 'Phone number is required';
-    }
+    // All fields are optional since they're prefilled from listing
+    // Seller just needs to review and can add exclusions/notes
+    // No validation needed for now
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return true; // Always valid
   };
 
   const handleSubmit = async () => {
@@ -179,9 +167,9 @@ export default function ApsGuidedFormScreen() {
       <ScrollView style={styles.scrollView}>
         <Card style={styles.headerCard}>
           <Card.Content>
-            <Text variant="titleLarge">Agreement of Purchase and Sale</Text>
+            <Text variant="titleLarge">Review Your Information</Text>
             <Text variant="bodyMedium" style={styles.headerSubtext}>
-              Please provide your information to complete the APS. This information will be added to the buyer's offer before you sign.
+              Your contact and lawyer details are prefilled from your listing. Review them and add any items you're excluding or rental items, then proceed to sign.
             </Text>
           </Card.Content>
         </Card>

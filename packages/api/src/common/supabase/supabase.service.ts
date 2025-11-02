@@ -7,14 +7,17 @@ export class SupabaseService {
   private supabase: SupabaseClient;
 
   constructor(private configService: ConfigService) {
-    // TODO: Uncomment when Supabase is set up
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
     
-    if (supabaseUrl && supabaseKey) {
-      this.supabase = createClient(supabaseUrl, supabaseKey);
-      console.log('✅ Supabase client initialized');
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error(
+        'Supabase credentials not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file.'
+      );
     }
+    
+    this.supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('✅ Supabase client initialized');
   }
 
   /**
@@ -30,16 +33,12 @@ export class SupabaseService {
     file: Buffer,
     contentType: string,
   ): Promise<string> {
-    // TODO: Implement when Supabase is set up
     const { data, error } = await this.supabase.storage
       .from(bucket)
       .upload(path, file, { contentType });
     
     if (error) throw error;
     return data.path;
-    
-    // console.log(`[STUB] Upload file to ${bucket}/${path}`);
-    // return `stubbed-s3-key-${Date.now()}`;
   }
 
   /**
@@ -53,27 +52,20 @@ export class SupabaseService {
     path: string,
     expiresIn = 3600,
   ): Promise<string> {
-    // TODO: Implement when Supabase is set up
     const { data, error } = await this.supabase.storage
       .from(bucket)
       .createSignedUrl(path, expiresIn);
     
     if (error) throw error;
     return data.signedUrl;
-    
-    // console.log(`[STUB] Get signed URL for ${bucket}/${path}`);
-    // return `https://stubbed-url.com/${bucket}/${path}`;
   }
 
   /**
    * Delete file from storage
    */
   async deleteFile(bucket: string, path: string): Promise<void> {
-    // TODO: Implement when Supabase is set up
     const { error } = await this.supabase.storage.from(bucket).remove([path]);
     if (error) throw error;
-    
-    // console.log(`[STUB] Delete file ${bucket}/${path}`);
   }
 }
 

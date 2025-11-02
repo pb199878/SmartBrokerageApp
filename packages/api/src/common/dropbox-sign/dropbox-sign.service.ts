@@ -390,11 +390,30 @@ export class DropboxSignService {
   }
 
   /**
+   * Map our field types to Dropbox Sign's expected field types
+   */
+  private mapToDropboxSignFieldType(type: string): string {
+    const typeMap: Record<string, string> = {
+      signature: "signature",
+      date: "date_signed",
+      initial: "initials",
+      initials: "initials",
+      text: "text",
+      checkbox: "checkbox",
+    };
+
+    return typeMap[type] || type;
+  }
+
+  /**
    * Add signature fields from the APS-2024 map to FormData
    */
   private addSignatureFields(formData: FormData): void {
     APS_2024_SIGNATURE_FIELDS.forEach((field, index) => {
       const apiId = `field_${field.type}_${index}`;
+
+      // Map our field types to Dropbox Sign's expected types
+      const dropboxSignType = this.mapToDropboxSignFieldType(field.type);
 
       formData.append(`form_fields_per_document[0][${index}][api_id]`, apiId);
       formData.append(
@@ -403,7 +422,7 @@ export class DropboxSignService {
       );
       formData.append(
         `form_fields_per_document[0][${index}][type]`,
-        field.type
+        dropboxSignType
       );
       formData.append(
         `form_fields_per_document[0][${index}][x]`,
@@ -426,9 +445,10 @@ export class DropboxSignService {
         field.required.toString()
       );
       formData.append(`form_fields_per_document[0][${index}][signer]`, "0"); // First signer
+      // Dropbox Sign uses 1-based page numbering, our fields use 0-based
       formData.append(
         `form_fields_per_document[0][${index}][page]`,
-        field.page.toString()
+        (field.page + 1).toString()
       );
     });
   }
@@ -445,10 +465,69 @@ export class DropboxSignService {
         .map((s) => s.emailAddress)
         .join(", ")}`
     );
+
+    // In stub mode, return a data URL with instructions instead of a fake domain
+    // This prevents WebView errors when Dropbox Sign credentials aren't configured
+    const stubHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              padding: 40px 20px;
+              text-align: center;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              min-height: 100vh;
+              margin: 0;
+            }
+            .container {
+              background: white;
+              color: #333;
+              padding: 30px;
+              border-radius: 12px;
+              max-width: 500px;
+              margin: 0 auto;
+              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            }
+            h1 { margin-top: 0; color: #667eea; }
+            code {
+              background: #f4f4f4;
+              padding: 2px 8px;
+              border-radius: 4px;
+              font-size: 14px;
+            }
+            .success { color: #10b981; font-size: 48px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success">✓</div>
+            <h1>Stub Mode Active</h1>
+            <p>This is a simulated signing page.</p>
+            <p>To use real Dropbox Sign, add these to your <code>.env</code> file:</p>
+            <p style="text-align: left; background: #f9f9f9; padding: 15px; border-radius: 6px; margin-top: 20px;">
+              <code>DROPBOX_SIGN_API_KEY=...</code><br>
+              <code>DROPBOX_SIGN_CLIENT_ID=...</code>
+            </p>
+            <p style="margin-top: 20px; font-size: 14px; color: #666;">
+              Request ID: ${stubId}
+            </p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const dataUrl = `data:text/html;base64,${Buffer.from(stubHtml).toString(
+      "base64"
+    )}`;
+
     return {
       signatureRequestId: `stub_request_${stubId}`,
       signatureId: `stub_signature_${stubId}`,
-      signUrl: `https://stubbed-sign-url.com/${stubId}`,
+      signUrl: dataUrl,
       expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
     };
   }

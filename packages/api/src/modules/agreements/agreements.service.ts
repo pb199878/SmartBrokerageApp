@@ -58,10 +58,10 @@ export class AgreementsService {
         oreaVersion,
       );
 
-      // 5. Upload prepared PDF to Supabase
+      // 5. Upload prepared PDF to Supabase (using attachments bucket)
       const preparedFileKey = `agreements/${request.listingId}/prepared_${Date.now()}.pdf`;
       await this.supabase.uploadFile(
-        'agreements',
+        'attachments',
         preparedFileKey,
         prefilledPdf,
         'application/pdf',
@@ -171,7 +171,7 @@ export class AgreementsService {
       signatureRequest?.finalDocumentFileKey
     ) {
       finalDocumentUrl = await this.supabase.getSignedUrl(
-        'agreements',
+        'attachments',
         signatureRequest.finalDocumentFileKey,
         3600,
       );
@@ -319,7 +319,7 @@ export class AgreementsService {
 
       const finalFileKey = `agreements/${agreement.listingId}/signed_${Date.now()}.pdf`;
       await this.supabase.uploadFile(
-        'agreements',
+        'attachments',
         finalFileKey,
         signedPdf,
         'application/pdf',
@@ -411,7 +411,7 @@ export class AgreementsService {
     } else if (source.type === 'fileKey' && source.fileKey) {
       // Load directly from file key
       const signedUrl = await this.supabase.getSignedUrl(
-        'agreements',
+        'attachments',
         source.fileKey,
         300,
       );

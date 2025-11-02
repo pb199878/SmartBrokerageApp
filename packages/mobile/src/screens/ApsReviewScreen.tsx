@@ -1,5 +1,11 @@
 import React from "react";
-import { View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
 import { Text, Card, Button, Divider } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp, NavigationProp } from "@react-navigation/native";
@@ -133,12 +139,11 @@ export default function ApsReviewScreen() {
       });
     } catch (error: any) {
       console.error("Error preparing agreement:", error);
-      // In stub mode, still navigate to show the flow
-      navigation.navigate("ApsSigning", {
-        agreementId: "stub-agreement-123",
-        signUrl: "https://stubbed-sign-url.com/test",
-        listingId,
-      });
+
+      // Show the actual error message to help with debugging
+      const errorMessage =
+        error?.message || error?.toString() || "Unknown error occurred";
+      Alert.alert("Error Preparing Agreement", errorMessage, [{ text: "OK" }]);
     }
   };
 

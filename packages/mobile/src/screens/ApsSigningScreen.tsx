@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
-import { ActivityIndicator, Button, Text, Card } from 'react-native-paper';
+import { ActivityIndicator, Button, Text } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
@@ -169,25 +169,6 @@ export default function ApsSigningScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Guidance Panel */}
-      <Card style={styles.guidanceCard}>
-        <Card.Content>
-          <Text variant="titleMedium">📋 Review and Sign</Text>
-          <Text variant="bodySmall" style={styles.guidanceText}>
-            • Review all information carefully
-          </Text>
-          <Text variant="bodySmall" style={styles.guidanceText}>
-            • Initial each page at the bottom right
-          </Text>
-          <Text variant="bodySmall" style={styles.guidanceText}>
-            • Sign on the final page
-          </Text>
-          <Text variant="bodySmall" style={styles.guidanceStatus}>
-            Status: {agreement?.status || 'Loading...'}
-          </Text>
-        </Card.Content>
-      </Card>
-
       {/* WebView */}
       <View style={styles.webViewContainer}>
         {loading && !loadingTimeout && (
@@ -241,27 +222,11 @@ export default function ApsSigningScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  guidanceCard: {
-    margin: 12,
-  },
-  guidanceText: {
-    marginTop: 4,
-    color: '#666',
-  },
-  guidanceStatus: {
-    marginTop: 8,
-    fontWeight: '600',
-    color: '#1976d2',
+    backgroundColor: '#fff',
   },
   webViewContainer: {
     flex: 1,
     backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    overflow: 'hidden',
   },
   webView: {
     flex: 1,

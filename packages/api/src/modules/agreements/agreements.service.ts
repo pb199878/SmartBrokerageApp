@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SupabaseService } from '../../common/supabase/supabase.service';
 import { PdfService } from './pdf.service';
-import { DropboxSignService } from './dropbox-sign.service';
+import { DropboxSignService } from '../../common/dropbox-sign/dropbox-sign.service';
 import {
   PrepareAgreementRequest,
   PrepareAgreementResponse,
@@ -87,29 +87,37 @@ export class AgreementsService {
       this.logger.log(`Created agreement record: ${agreement.id}`);
 
       // 7. Create Dropbox Sign embedded signature request
-      const dropboxResponse = await this.dropboxSign.createEmbeddedSignatureRequest(
-        prefilledPdf,
-        `APS_${request.listingId}_${Date.now()}.pdf`,
-        {
-          email: request.seller.email,
-          name: request.seller.name,
+      const dropboxResponse = await this.dropboxSign.createEmbeddedSignatureRequest({
+        title: `Agreement of Purchase and Sale - Listing ${request.listingId}`,
+        subject: 'Please sign this Agreement of Purchase and Sale',
+        message: 'Please review and sign the APS document to accept the buyer\'s offer.',
+        signers: [
+          {
+            emailAddress: request.seller.email,
+            name: request.seller.name || 'Seller',
+            order: 0,
+          },
+        ],
+        file: prefilledPdf,
+        filename: `APS_${request.listingId}_${Date.now()}.pdf`,
+        metadata: {
+          agreementId: agreement.id,
+          listingId: request.listingId,
         },
-        'Please sign this Agreement of Purchase and Sale',
-        'Please review and sign the APS document to accept the buyer\'s offer.',
-      );
+      });
 
-      this.logger.log(`Created Dropbox Sign request: ${dropboxResponse.signature_request_id}`);
+      this.logger.log(`Created Dropbox Sign request: ${dropboxResponse.signatureRequestId}`);
 
       // 8. Create SignatureRequest record
       await this.prisma.signatureRequest.create({
         data: {
           agreementId: agreement.id,
           provider: 'DROPBOX_SIGN',
-          providerRequestId: dropboxResponse.signature_request_id,
-          providerSignatureId: dropboxResponse.signature_id,
+          providerRequestId: dropboxResponse.signatureRequestId,
+          providerSignatureId: dropboxResponse.signatureId,
           signerEmail: request.seller.email,
           signerName: request.seller.name,
-          signUrl: dropboxResponse.sign_url,
+          signUrl: dropboxResponse.signUrl,
           status: 'CREATED',
         },
       });
@@ -125,7 +133,7 @@ export class AgreementsService {
 
       return {
         agreementId: agreement.id,
-        signUrl: dropboxResponse.sign_url || '',
+        signUrl: dropboxResponse.signUrl,
       };
     } catch (error) {
       this.logger.error(`Error preparing agreement: ${error.message}`);

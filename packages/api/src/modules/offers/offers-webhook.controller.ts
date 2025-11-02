@@ -19,6 +19,9 @@ export class OffersWebhookController {
    * Receives signature events and processes them
    * POST /webhooks/hellosign
    *
+   * Note: Path remains 'hellosign' for backward compatibility with Dropbox Sign
+   * (Dropbox Sign acquired HelloSign but still uses the original webhook URLs)
+   *
    * IMPORTANT: Dropbox Sign sends webhooks as multipart/form-data
    * with the event data in a 'json' field (as a stringified JSON object)
    *
@@ -28,7 +31,7 @@ export class OffersWebhookController {
    */
   @Post("hellosign")
   @UseInterceptors(AnyFilesInterceptor()) // Parse multipart/form-data (like multer)
-  async handleHelloSignWebhook(@Req() req: Request, @Res() res: Response) {
+  async handleDropboxSignWebhook(@Req() req: Request, @Res() res: Response) {
     console.log("📝 Received Dropbox Sign webhook");
     console.log("Content-Type:", req.headers["content-type"]);
     console.log("req.body type:", typeof req.body);

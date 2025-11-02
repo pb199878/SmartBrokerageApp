@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
-import { HelloSignService } from "../../common/hellosign/hellosign.service";
+import { DropboxSignService } from "../../common/dropbox-sign/dropbox-sign.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
 import { MailgunService } from "../../common/mailgun/mailgun.service";
 import { OfferStatus, MessageSubCategory } from "@prisma/client";
@@ -10,7 +10,7 @@ import { DeclineOfferDto, CounterOfferDto } from "@smart-brokerage/shared";
 export class OffersService {
   constructor(
     private prisma: PrismaService,
-    private helloSignService: HelloSignService,
+    private dropboxSignService: DropboxSignService,
     private supabaseService: SupabaseService,
     private mailgunService: MailgunService
   ) {}
@@ -389,7 +389,7 @@ export class OffersService {
     // Create embedded signature request for seller
     // This must succeed before we update the offer status
     const signatureRequest =
-      await this.helloSignService.createEmbeddedSignatureRequest({
+      await this.dropboxSignService.createEmbeddedSignatureRequest({
         title: `Accept Offer - ${offer.thread.listing.address}`,
         subject: `Acceptance of Offer for ${offer.thread.listing.address}`,
         message: "Please review and sign to accept this offer.",
@@ -446,8 +446,8 @@ export class OffersService {
       throw new Error("No signature request found for this offer");
     }
 
-    // Get the signature request from HelloSign to retrieve the signature_id
-    const signatureRequest = await this.helloSignService.getSignatureRequest(
+    // Get the signature request from Dropbox Sign to retrieve the signature_id
+    const signatureRequest = await this.dropboxSignService.getSignatureRequest(
       offer.hellosignSignatureRequestId
     );
 
@@ -460,7 +460,7 @@ export class OffersService {
     const signatureId = signatures[0].signature_id;
 
     // Get fresh embedded signing URL
-    const signUrlResponse = await this.helloSignService.getEmbeddedSignUrl(
+    const signUrlResponse = await this.dropboxSignService.getEmbeddedSignUrl(
       signatureId
     );
 
@@ -619,7 +619,7 @@ export class OffersService {
       eventType &&
       eventHash
     ) {
-      const isValid = this.helloSignService.verifyWebhookSignature(
+      const isValid = this.dropboxSignService.verifyWebhookSignature(
         eventTime,
         eventType,
         eventHash
@@ -700,7 +700,7 @@ export class OffersService {
     console.log(`✅ All signatures completed for offer ${offer.id}`);
 
     // Download signed document
-    const signedDoc = await this.helloSignService.downloadSignedDocument(
+    const signedDoc = await this.dropboxSignService.downloadSignedDocument(
       signatureRequest.signature_request_id
     );
 

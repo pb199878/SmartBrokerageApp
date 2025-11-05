@@ -421,6 +421,7 @@ export class DocuPipeService {
 
   /**
    * Convert DocuPipe date object to ISO string
+   * Handles formats like: { day: "30th", month: "November", year: "2025" }
    */
   private convertDate(dateObj?: {
     day?: string;
@@ -432,15 +433,59 @@ export class DocuPipeService {
     }
 
     try {
-      // Pad day and month with leading zeros
-      const day = dateObj.day.padStart(2, "0");
-      const month = dateObj.month.padStart(2, "0");
+      // Strip ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) from day
+      const dayNum = dateObj.day.replace(/(\d+)(st|nd|rd|th)/i, "$1");
+
+      // Convert month name to number or use as-is if already numeric
+      let monthNum: string;
+      const monthNames = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+      ];
+      const monthLower = dateObj.month.toLowerCase();
+      const monthIndex = monthNames.findIndex((m) => monthLower.includes(m));
+
+      if (monthIndex >= 0) {
+        // Found month name, convert to number (1-12)
+        monthNum = String(monthIndex + 1).padStart(2, "0");
+      } else {
+        // Already numeric or unrecognized, try to parse
+        const parsed = parseInt(dateObj.month, 10);
+        if (!isNaN(parsed)) {
+          monthNum = String(parsed).padStart(2, "0");
+        } else {
+          console.warn("Could not parse month:", dateObj.month);
+          return undefined;
+        }
+      }
+
+      // Pad day with leading zero
+      const day = dayNum.padStart(2, "0");
       const year = dateObj.year;
 
       // Return ISO date string (YYYY-MM-DD)
-      return `${year}-${month}-${day}`;
+      const isoDate = `${year}-${monthNum}-${day}`;
+
+      // Validate the date is actually valid
+      const testDate = new Date(isoDate);
+      if (isNaN(testDate.getTime())) {
+        console.warn("Invalid date produced:", isoDate, "from", dateObj);
+        return undefined;
+      }
+
+      return isoDate;
     } catch (error) {
-      console.warn("Failed to convert date:", dateObj);
+      console.warn("Failed to convert date:", dateObj, error);
       return undefined;
     }
   }

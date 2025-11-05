@@ -121,6 +121,8 @@ export class DocumentsService {
       // Extract offer data if it's an OREA form
       let extractedData: ExtractedOfferData | null = null;
       let docupipeJobId: string | undefined;
+      let docupipeDocumentId: string | undefined;
+      let docupipeStandardizationId: string | undefined;
       let formFieldsExtracted: any = undefined;
       let validationStatus: string | undefined;
       let validationErrors: any = undefined;
@@ -137,9 +139,12 @@ export class DocumentsService {
             console.log("🔍 Using DocuPipe for comprehensive extraction...");
 
             const docupipeResult = await this.docuPipeService.analyzeAndExtract(
-              pdfBuffer
+              pdfBuffer,
+              attachment.filename
             );
             docupipeJobId = docupipeResult.jobId;
+            docupipeDocumentId = docupipeResult.documentId;
+            docupipeStandardizationId = docupipeResult.standardizationId;
             formFieldsExtracted = docupipeResult.rawResponse;
 
             // Merge DocuPipe extraction with basic extraction (DocuPipe takes precedence)
@@ -170,7 +175,9 @@ export class DocumentsService {
               : false;
 
             console.log(
-              `✅ DocuPipe extraction complete. Validation: ${validationStatus}`
+              `✅ DocuPipe extraction complete. Validation: ${validationStatus}${
+                docupipeStandardizationId ? " (using schema)" : ""
+              }`
             );
           } catch (error: any) {
             console.error(
@@ -215,6 +222,8 @@ export class DocumentsService {
           hasRequiredSignatures,
           priceMatchesExtracted,
           docupipeJobId,
+          docupipeDocumentId,
+          docupipeStandardizationId,
           formFieldsExtracted: formFieldsExtracted
             ? JSON.parse(JSON.stringify(formFieldsExtracted))
             : undefined,

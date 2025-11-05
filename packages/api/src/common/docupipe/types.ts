@@ -192,6 +192,7 @@ export interface DocuPipeOREAForm100Response {
  */
 export interface DocuPipeUploadResponse {
   jobId: string;
+  documentId: string;
   status: 'processing' | 'completed' | 'failed';
 }
 
@@ -200,13 +201,13 @@ export interface DocuPipeUploadResponse {
  */
 export interface DocuPipeJobStatusResponse {
   jobId: string;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'processing' | 'completed' | 'failed' | 'error';
   progress?: number;
   error?: string;
 }
 
 /**
- * DocuPipe API response for extraction results
+ * DocuPipe API response for extraction results (basic parsing)
  */
 export interface DocuPipeExtractionResponse {
   jobId: string;
@@ -215,10 +216,47 @@ export interface DocuPipeExtractionResponse {
 }
 
 /**
+ * DocuPipe API response for standardization batch request
+ */
+export interface DocuPipeStandardizeResponse {
+  jobId: string;
+  standardizationIds: string[];
+}
+
+/**
+ * DocuPipe API response for standardization results
+ */
+export interface DocuPipeStandardizationResult {
+  standardizationId: string;
+  documentId: string;
+  schemaId: string;
+  data: DocuPipeOREAForm100Response;
+  status: 'completed';
+}
+
+/**
  * Signature detection result
  */
 export interface SignatureInfo {
   buyerSignature1Detected: boolean;
   buyerSignature2Detected: boolean;
+}
+
+/**
+ * DocuPipe Schema information
+ */
+export interface DocuPipeSchema {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * DocuPipe List Schemas response
+ */
+export interface DocuPipeListSchemasResponse {
+  schemas: DocuPipeSchema[];
 }
 

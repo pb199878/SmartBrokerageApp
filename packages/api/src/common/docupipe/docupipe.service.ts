@@ -5,6 +5,9 @@ import {
   DocuPipeUploadResponse,
   DocuPipeJobStatusResponse,
   DocuPipeExtractionResponse,
+  DocuPipeStandardizeResponse,
+  DocuPipeStandardizationResult,
+  DocuPipeListSchemasResponse,
   SignatureInfo,
 } from "./types";
 
@@ -59,10 +62,15 @@ export class DocuPipeService {
   private client: AxiosInstance;
   private apiKey: string;
   private apiUrl: string;
+  private schemaId: string;
+  private schemaName: string;
+  private schemaIdCache: string | null = null; // Cache for auto-resolved schema ID
 
   constructor() {
     this.apiKey = process.env.DOCUPIPE_API_KEY || "";
     this.apiUrl = process.env.DOCUPIPE_API_URL || "https://app.docupipe.ai";
+    this.schemaId = process.env.DOCUPIPE_SCHEMA_ID || "";
+    this.schemaName = process.env.DOCUPIPE_SCHEMA_NAME || "APS Schema V2"; // Default schema name
 
     if (!this.apiKey) {
       console.warn(
@@ -70,12 +78,20 @@ export class DocuPipeService {
       );
     } else {
       console.log("✓ DocuPipe.ai integration enabled");
+      if (this.schemaId) {
+        console.log(`✓ Using schema ID: ${this.schemaId}`);
+      } else if (this.schemaName) {
+        console.log(`✓ Will auto-resolve schema by name: "${this.schemaName}"`);
+      } else {
+        console.warn("⚠️  No schema configured - using generic extraction");
+      }
     }
 
     this.client = axios.create({
       baseURL: this.apiUrl,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
+        "X-API-Key": this.apiKey, // DocuPipe uses X-API-Key header
       },
       timeout: 60000, // 60 second timeout
       // Force IPv4 to avoid some DNS issues
@@ -85,26 +101,42 @@ export class DocuPipeService {
 
   /**
    * Upload PDF to DocuPipe for analysis
-   * Returns jobId for polling
+   * Returns jobId and documentId for polling and standardization
    */
-  async analyzeDocument(pdfBuffer: Buffer): Promise<string> {
+  async analyzeDocument(
+    pdfBuffer: Buffer,
+    filename: string = "document.pdf"
+  ): Promise<{ jobId: string; documentId: string }> {
     try {
       console.log("📤 Uploading PDF to DocuPipe.ai...");
 
+      // Convert buffer to base64 as per DocuPipe API docs
+      const base64Content = pdfBuffer.toString("base64");
+
       const response = await this.client.post<DocuPipeUploadResponse>(
-        "/api/documents",
-        pdfBuffer,
+        "/document",
+        {
+          document: {
+            file: {
+              contents: base64Content,
+              filename: filename,
+            },
+          },
+        },
         {
           headers: {
-            "Content-Type": "application/pdf",
+            "Content-Type": "application/json",
+            accept: "application/json",
           },
         }
       );
 
-      const jobId = response.data.jobId;
-      console.log(`✅ DocuPipe upload successful. Job ID: ${jobId}`);
+      const { jobId, documentId } = response.data;
+      console.log(
+        `✅ DocuPipe upload successful. Job ID: ${jobId}, Document ID: ${documentId}`
+      );
 
-      return jobId;
+      return { jobId, documentId };
     } catch (error: any) {
       // Provide helpful error messages
       if (error.code === "ENOTFOUND") {
@@ -130,14 +162,14 @@ export class DocuPipeService {
 
   /**
    * Poll job status
-   * Returns current status: 'processing' | 'completed' | 'failed'
+   * Returns current status: 'processing' | 'completed' | 'failed' | 'error'
    */
   async pollJobStatus(
     jobId: string
-  ): Promise<"processing" | "completed" | "failed"> {
+  ): Promise<"processing" | "completed" | "failed" | "error"> {
     try {
       const response = await this.client.get<DocuPipeJobStatusResponse>(
-        `/api/documents/${jobId}`
+        `/job/${jobId}`
       );
 
       return response.data.status;
@@ -183,7 +215,7 @@ export class DocuPipeService {
   }
 
   /**
-   * Get extraction results after job completes
+   * Get extraction results after job completes (legacy method - without schema)
    * Returns full DocuPipe OREA Form 100 response
    */
   async getExtractionResults(
@@ -201,6 +233,151 @@ export class DocuPipeService {
     } catch (error: any) {
       console.error("❌ DocuPipe results retrieval failed:", error.message);
       throw new Error(`DocuPipe results retrieval failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * List all schemas from DocuPipe
+   */
+  async listSchemas(): Promise<DocuPipeListSchemasResponse> {
+    try {
+      const response = await this.client.get<DocuPipeListSchemasResponse>(
+        "/schema"
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error("❌ DocuPipe list schemas failed:", error.message);
+      throw new Error(`DocuPipe list schemas failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Find schema ID by name
+   * Caches result to avoid repeated API calls
+   */
+  async findSchemaIdByName(name: string): Promise<string | null> {
+    try {
+      console.log(`🔍 Looking up schema ID for: "${name}"`);
+
+      const response = await this.listSchemas();
+      const schema = response.schemas.find(
+        (s) => s.name.toLowerCase() === name.toLowerCase()
+      );
+
+      if (schema) {
+        console.log(`✅ Found schema: "${schema.name}" (ID: ${schema.id})`);
+        return schema.id;
+      }
+
+      console.warn(`⚠️  Schema "${name}" not found in DocuPipe`);
+      console.log(
+        "Available schemas:",
+        response.schemas.map((s) => s.name).join(", ")
+      );
+      return null;
+    } catch (error: any) {
+      console.error("❌ Failed to lookup schema:", error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get schema ID - either from config or by auto-resolving from name
+   * Caches the result after first lookup
+   */
+  async getSchemaId(providedSchemaId?: string): Promise<string> {
+    // 1. Use provided schema ID
+    if (providedSchemaId) {
+      return providedSchemaId;
+    }
+
+    // 2. Use configured schema ID
+    if (this.schemaId) {
+      return this.schemaId;
+    }
+
+    // 3. Use cached schema ID (from previous lookup)
+    if (this.schemaIdCache) {
+      return this.schemaIdCache;
+    }
+
+    // 4. Auto-resolve from schema name
+    if (this.schemaName) {
+      const resolvedId = await this.findSchemaIdByName(this.schemaName);
+      if (resolvedId) {
+        this.schemaIdCache = resolvedId; // Cache it
+        return resolvedId;
+      }
+    }
+
+    throw new Error(
+      "Schema ID could not be determined. Either set DOCUPIPE_SCHEMA_ID, DOCUPIPE_SCHEMA_NAME, or pass schemaId parameter."
+    );
+  }
+
+  /**
+   * Standardize documents using a schema
+   * Returns standardizationJobId and standardizationIds for polling
+   */
+  async standardizeDocuments(
+    documentIds: string[],
+    schemaId?: string
+  ): Promise<{ jobId: string; standardizationIds: string[] }> {
+    try {
+      const schemaToUse = await this.getSchemaId(schemaId);
+
+      console.log(
+        `📊 Standardizing ${documentIds.length} document(s) with schema: ${schemaToUse}...`
+      );
+
+      const response = await this.client.post<DocuPipeStandardizeResponse>(
+        "/v2/standardize/batch",
+        {
+          schemaId: schemaToUse,
+          documentIds: documentIds,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            accept: "application/json",
+          },
+        }
+      );
+
+      const { jobId, standardizationIds } = response.data;
+      console.log(`✅ Standardization job created. Job ID: ${jobId}`);
+
+      return { jobId, standardizationIds };
+    } catch (error: any) {
+      console.error("❌ DocuPipe standardization failed:", error.message);
+      throw new Error(`DocuPipe standardization failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get standardization results after job completes
+   * Returns standardized data matching the schema
+   */
+  async getStandardizationResults(
+    standardizationId: string
+  ): Promise<DocuPipeOREAForm100Response> {
+    try {
+      console.log("📥 Retrieving DocuPipe standardization results...");
+
+      const response = await this.client.get<DocuPipeStandardizationResult>(
+        `/standardization/${standardizationId}`
+      );
+
+      console.log("✅ DocuPipe standardization results retrieved");
+      return response.data.data;
+    } catch (error: any) {
+      console.error(
+        "❌ DocuPipe standardization retrieval failed:",
+        error.message
+      );
+      throw new Error(
+        `DocuPipe standardization retrieval failed: ${error.message}`
+      );
     }
   }
 
@@ -344,16 +521,93 @@ export class DocuPipeService {
   }
 
   /**
-   * Complete analysis workflow: upload → poll → retrieve → extract
-   * Returns extracted offer data
+   * Complete analysis workflow with standardization:
+   * upload → poll → standardize → poll → retrieve → extract
+   * Returns extracted offer data using the configured schema
    */
-  async analyzeAndExtract(pdfBuffer: Buffer): Promise<{
+  async analyzeAndExtract(
+    pdfBuffer: Buffer,
+    filename: string = "document.pdf"
+  ): Promise<{
+    jobId: string;
+    documentId: string;
+    standardizationId?: string;
+    extractedData: ExtractedOfferData;
+    rawResponse: DocuPipeOREAForm100Response;
+  }> {
+    // Step 1: Upload document
+    const { jobId, documentId } = await this.analyzeDocument(
+      pdfBuffer,
+      filename
+    );
+
+    // Step 2: Poll until document parsing completes
+    await this.waitForCompletion(jobId);
+
+    let rawResponse: DocuPipeOREAForm100Response;
+    let standardizationId: string | undefined;
+
+    // Step 3: If schema is configured (by ID or name), use standardization workflow
+    const hasSchema = !!(
+      this.schemaId ||
+      this.schemaName ||
+      this.schemaIdCache
+    );
+
+    if (hasSchema) {
+      try {
+        console.log("🔍 Using standardization workflow with schema...");
+
+        // Standardize the document (will auto-resolve schema ID if needed)
+        const { jobId: stdJobId, standardizationIds } =
+          await this.standardizeDocuments([documentId]);
+
+        // Poll until standardization completes
+        await this.waitForCompletion(stdJobId);
+
+        // Get standardization results
+        standardizationId = standardizationIds[0];
+        rawResponse = await this.getStandardizationResults(standardizationId);
+
+        console.log("✅ Standardization workflow complete");
+      } catch (error: any) {
+        console.error(
+          "❌ Standardization failed, falling back to legacy extraction:",
+          error.message
+        );
+        // Fallback to legacy extraction
+        rawResponse = await this.getExtractionResults(jobId);
+      }
+    } else {
+      // Fallback: Use legacy extraction without schema
+      console.log("⚠️  No schema configured, using legacy extraction");
+      rawResponse = await this.getExtractionResults(jobId);
+    }
+
+    // Extract data
+    const extractedData = this.extractComprehensiveOfferData(rawResponse);
+
+    return {
+      jobId,
+      documentId,
+      standardizationId,
+      extractedData,
+      rawResponse,
+    };
+  }
+
+  /**
+   * Legacy method: Complete analysis workflow without standardization
+   * upload → poll → retrieve → extract
+   * Returns extracted offer data (no schema applied)
+   */
+  async analyzeAndExtractLegacy(pdfBuffer: Buffer): Promise<{
     jobId: string;
     extractedData: ExtractedOfferData;
     rawResponse: DocuPipeOREAForm100Response;
   }> {
     // Upload
-    const jobId = await this.analyzeDocument(pdfBuffer);
+    const { jobId } = await this.analyzeDocument(pdfBuffer);
 
     // Poll until complete
     await this.waitForCompletion(jobId);

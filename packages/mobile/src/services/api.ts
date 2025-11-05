@@ -10,10 +10,10 @@ import type {
   DeclineOfferDto,
   CounterOfferDto,
   Attachment,
-  PrepareAgreementRequest,
-  PrepareAgreementResponse,
-  AgreementDetail,
+  PrepareOfferForSigningRequest,
+  PrepareOfferForSigningResponse,
   ApiResponse,
+  ApsIntake,
 } from '@smart-brokerage/shared';
 
 const api = axios.create({
@@ -164,39 +164,40 @@ export const offersApi = {
 };
 
 // ============================================================
-// AGREEMENTS API
+// OFFERS API (EXTENDED)
 // ============================================================
 
-export const agreementsApi = {
-  /**
-   * Prepare an APS for seller signing
-   */
-  prepare: async (request: PrepareAgreementRequest): Promise<PrepareAgreementResponse> => {
-    const response = await api.post<ApiResponse<PrepareAgreementResponse>>(
-      '/agreements/aps/prepare',
-      request,
-    );
-    
-    if (!response.data.success) {
-      throw new Error(response.data.error || 'Failed to prepare agreement');
-    }
-    
-    return response.data.data!;
-  },
+/**
+ * Prepare offer for signing with guided intake
+ * Replaces the old agreementsApi.prepare()
+ */
+export const prepareOfferForSigning = async (
+  offerId: string,
+  intake: ApsIntake,
+  seller: { email: string; name: string }
+): Promise<PrepareOfferForSigningResponse> => {
+  const response = await api.post<ApiResponse<PrepareOfferForSigningResponse>>(
+    `/offers/${offerId}/prepare-signature`,
+    { intake, seller },
+  );
+  
+  if (!response.data.success) {
+    throw new Error(response.data.error || 'Failed to prepare offer for signing');
+  }
+  
+  return response.data.data!;
+};
 
-  /**
-   * Get agreement details by ID
-   */
-  get: async (agreementId: string): Promise<AgreementDetail> => {
-    const response = await api.get<ApiResponse<AgreementDetail>>(
-      `/agreements/${agreementId}`,
-    );
-    
-    if (!response.data.success) {
-      throw new Error(response.data.error || 'Failed to get agreement');
-    }
-    
-    return response.data.data!;
+/**
+ * @deprecated Use prepareOfferForSigning() instead
+ * Legacy agreements API kept for backwards compatibility
+ */
+export const agreementsApi = {
+  prepare: async (): Promise<any> => {
+    throw new Error('agreementsApi.prepare() is deprecated. Use prepareOfferForSigning() instead');
+  },
+  get: async (): Promise<any> => {
+    throw new Error('agreementsApi.get() is deprecated. Use offersApi.get() instead');
   },
 };
 

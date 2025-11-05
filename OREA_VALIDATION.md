@@ -145,8 +145,10 @@ Add to `.env`:
 ```bash
 # DocuPipe.ai Configuration
 DOCUPIPE_API_KEY=your_docupipe_api_key
-DOCUPIPE_API_URL=https://api.docupipe.ai  # Optional, defaults to this
+DOCUPIPE_API_URL=https://app.docupipe.ai  # Optional, defaults to this
 ```
+
+The system will automatically fall back to basic extraction if DocuPipe is not configured.
 
 ### 2. DocuPipe.ai Schema Setup
 
@@ -275,6 +277,23 @@ ORDER BY m.created_at DESC;
 
 ## Troubleshooting
 
+### Issue: DocuPipe DNS errors (ENOTFOUND)
+
+**Symptoms**: Error `getaddrinfo ENOTFOUND api.docupipe.ai`
+
+**Cause**: Incorrect API endpoint (should be `app.docupipe.ai`, not `api.docupipe.ai`)
+
+**Solution**: 
+1. Update `.env` file with correct endpoint:
+   ```bash
+   DOCUPIPE_API_KEY="your_api_key"
+   DOCUPIPE_API_URL="https://app.docupipe.ai"
+   ```
+2. Restart API server
+3. DocuPipe should now connect successfully
+
+**Note**: The default URL has been updated in the code to `https://app.docupipe.ai`
+
 ### Issue: DocuPipe not extracting data
 
 **Symptoms**: Validation status is `not_validated`, extraction is basic only
@@ -284,6 +303,7 @@ ORDER BY m.created_at DESC;
 2. Verify API key is valid
 3. Check backend logs for DocuPipe errors
 4. Ensure PDF is valid OREA Form 100
+5. Verify `app.docupipe.ai` is reachable: `nslookup app.docupipe.ai`
 
 ### Issue: All forms failing validation
 

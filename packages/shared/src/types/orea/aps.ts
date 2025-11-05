@@ -1,27 +1,7 @@
 // OREA Agreement of Purchase and Sale (APS) types
 
-export enum AgreementStatus {
-  PENDING_SELLER_INTAKE = 'PENDING_SELLER_INTAKE',
-  PREPARING = 'PREPARING',
-  READY_TO_SIGN = 'READY_TO_SIGN',
-  SIGNING_IN_PROGRESS = 'SIGNING_IN_PROGRESS',
-  SIGNED = 'SIGNED',
-  FAILED = 'FAILED',
-  CANCELLED = 'CANCELLED',
-}
-
-export enum SignatureProvider {
-  DROPBOX_SIGN = 'DROPBOX_SIGN',
-}
-
-export enum SignatureRequestStatus {
-  CREATED = 'CREATED',
-  VIEWED = 'VIEWED',
-  SIGNED = 'SIGNED',
-  DECLINED = 'DECLINED',
-  CANCELLED = 'CANCELLED',
-  ERROR = 'ERROR',
-}
+// Note: Agreement and SignatureRequest models have been consolidated into Offer model
+// See packages/api/prisma/schema.prisma for the unified Offer model
 
 // OREA APS intake data structure (seller's responses + buyer offer details)
 // Note: Most fields are prefilled from listing/extracted from buyer's offer
@@ -68,7 +48,24 @@ export interface ApsIntake {
   sellerNotes?: string;
 }
 
-// API request/response types
+// API request/response types for Offer preparation
+export interface PrepareOfferForSigningRequest {
+  intake: ApsIntake;
+  seller: {
+    email: string;
+    name: string;
+  };
+}
+
+export interface PrepareOfferForSigningResponse {
+  signUrl: string;
+  expiresAt: number;
+}
+
+/**
+ * @deprecated Use Offer model instead
+ * Legacy types kept for backwards compatibility
+ */
 export interface PrepareAgreementRequest {
   source: {
     type: 'attachment' | 'fileKey';
@@ -83,15 +80,21 @@ export interface PrepareAgreementRequest {
   intake: ApsIntake;
 }
 
+/**
+ * @deprecated Use Offer model instead
+ */
 export interface PrepareAgreementResponse {
   agreementId: string;
   signUrl: string;
 }
 
+/**
+ * @deprecated Use Offer model instead
+ */
 export interface AgreementDetail {
   id: string;
   listingId: string;
-  status: AgreementStatus;
+  status: any;
   oreaVersion?: string;
   sellerEmail: string;
   sellerName?: string;
@@ -102,7 +105,7 @@ export interface AgreementDetail {
   errorMessage?: string;
   signatureRequest?: {
     id: string;
-    status: SignatureRequestStatus;
+    status: any;
     signUrl?: string;
     viewedAt?: string;
     signedAt?: string;

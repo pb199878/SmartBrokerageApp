@@ -265,13 +265,13 @@ export default function ChatScreen() {
             onReviewAndSign={(offerId) => {
               // Navigate to APS review screen with buyer details from offer
               const offer = offers?.find((o) => o.id === offerId);
-              if (!thread?.listingId) {
-                console.error("No listingId available for APS review");
+              if (!thread?.listingId || !offerId) {
+                console.error("No listingId or offerId available for APS review");
                 return;
               }
               navigation.navigate("ApsReview", {
+                offerId: offerId,
                 listingId: thread.listingId,
-                attachmentId: item.attachments?.[0]?.id || "unknown",
                 sellerEmail: "seller@example.com", // TODO: Get from user context
                 sellerName: "Seller Name", // TODO: Get from user context
                 buyerDetails: offer
@@ -413,13 +413,14 @@ export default function ChatScreen() {
       keyboardVerticalOffset={90}
     >
       {/* TEMPORARY: Test button for APS Review */}
-      {thread?.listingId && (
+      {thread?.listingId && offers && offers.length > 0 && (
         <TouchableOpacity
           style={styles.testApsButton}
           onPress={() => {
+            const firstOffer = offers[0];
             navigation.navigate("ApsReview", {
+              offerId: firstOffer.id,
               listingId: thread.listingId,
-              attachmentId: "test-attachment-123",
               sellerEmail: "seller@test.com",
               sellerName: "Test Seller",
             });

@@ -1,45 +1,54 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { agreementsApi } from '../services/api';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { prepareOfferForSigning } from "../services/api";
 import type {
-  PrepareAgreementRequest,
-  PrepareAgreementResponse,
-  AgreementDetail,
-} from '@smart-brokerage/shared';
+  PrepareOfferForSigningResponse,
+  ApsIntake,
+} from "@smart-brokerage/shared";
+
+interface PrepareOfferForSigningParams {
+  offerId: string;
+  intake: ApsIntake;
+  seller: {
+    email: string;
+    name: string;
+  };
+}
 
 /**
- * Prepare an APS for seller signing
+ * Prepare an offer for seller signing with guided intake
+ * Replaces usePrepareAgreement()
  */
-export function usePrepareAgreement() {
+export function usePrepareOfferForSigning() {
   const queryClient = useQueryClient();
 
-  return useMutation<PrepareAgreementResponse, Error, PrepareAgreementRequest>({
-    mutationFn: agreementsApi.prepare,
+  return useMutation<
+    PrepareOfferForSigningResponse,
+    Error,
+    PrepareOfferForSigningParams
+  >({
+    mutationFn: ({ offerId, intake, seller }) =>
+      prepareOfferForSigning(offerId, intake, seller),
     onSuccess: (data, variables) => {
       // Invalidate and refetch related queries
-      queryClient.invalidateQueries({ queryKey: ['agreement', data.agreementId] });
-      queryClient.invalidateQueries({ queryKey: ['listings', variables.listingId] });
+      queryClient.invalidateQueries({ queryKey: ["offer", variables.offerId] });
+      queryClient.invalidateQueries({ queryKey: ["offers"] });
     },
   });
 }
 
 /**
- * Get agreement details
+ * @deprecated Use usePrepareOfferForSigning() instead
+ * Legacy hook kept for backwards compatibility
  */
-export function useAgreement(agreementId: string | undefined) {
-  return useQuery<AgreementDetail, Error>({
-    queryKey: ['agreement', agreementId],
-    queryFn: () => agreementsApi.get(agreementId!),
-    enabled: !!agreementId,
-    refetchInterval: (data) => {
-      // Poll while signing is in progress
-      if (
-        data?.status === 'READY_TO_SIGN' ||
-        data?.status === 'SIGNING_IN_PROGRESS'
-      ) {
-        return 5000; // Poll every 5 seconds
-      }
-      return false; // Don't poll
-    },
-  });
+export function usePrepareAgreement() {
+  throw new Error(
+    "usePrepareAgreement() is deprecated. Use usePrepareOfferForSigning() instead"
+  );
 }
 
+/**
+ * @deprecated Agreements are now consolidated into Offers. Use useOffer() from offers hook instead
+ */
+export function useAgreement() {
+  throw new Error("useAgreement() is deprecated. Use useOffer() instead");
+}

@@ -22,20 +22,20 @@ export type RootStackParamList = {
   OfferAction: { offerId: string; action: 'accept' | 'decline' | 'counter' };
   DropboxSign: { signUrl: string; offerId: string };
   ApsGuidedForm: {
+    offerId: string;
     listingId: string;
-    attachmentId: string;
     sellerEmail: string;
     sellerName?: string;
   };
   ApsReview: {
+    offerId: string;
     listingId: string;
-    attachmentId: string;
     sellerEmail: string;
     sellerName?: string;
     buyerDetails?: any; // Optional: buyer's offer details from parsed APS
   };
   ApsSigning: {
-    agreementId: string;
+    offerId: string;
     signUrl: string;
     listingId: string;
   };

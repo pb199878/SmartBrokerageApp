@@ -15,7 +15,6 @@ import { AttachmentsModule } from "./modules/attachments/attachments.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { ClassificationModule } from "./modules/classification/classification.module";
 import { OffersModule } from "./modules/offers/offers.module";
-import { AgreementsModule } from "./modules/agreements/agreements.module";
 
 @Module({
   imports: [
@@ -50,7 +49,6 @@ import { AgreementsModule } from "./modules/agreements/agreements.module";
     DocumentsModule,
     ClassificationModule,
     OffersModule,
-    AgreementsModule,
   ],
 })
 export class AppModule {}

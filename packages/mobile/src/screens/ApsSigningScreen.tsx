@@ -5,7 +5,8 @@ import { WebView } from 'react-native-webview';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/AppNavigator';
-import { useAgreement } from '../hooks/agreements';
+import { useQuery } from '@tanstack/react-query';
+import { offersApi } from '../services/api';
 
 type ApsSigningRouteProp = RouteProp<RootStackParamList, 'ApsSigning'>;
 
@@ -14,27 +15,38 @@ const LOADING_TIMEOUT = 30000; // 30 seconds
 export default function ApsSigningScreen() {
   const route = useRoute<ApsSigningRouteProp>();
   const navigation = useNavigation();
-  const { agreementId, signUrl, listingId } = route.params;
+  const { offerId, signUrl, listingId } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const webViewRef = useRef<WebView>(null);
 
-  // Poll agreement status
-  const { data: agreement, refetch } = useAgreement(agreementId);
+  // Poll offer status
+  const { data: offer, refetch } = useQuery({
+    queryKey: ['offer', offerId],
+    queryFn: () => offersApi.get(offerId),
+    enabled: !!offerId,
+    refetchInterval: (data) => {
+      // Poll while signing is in progress
+      if (data?.status === 'AWAITING_SELLER_SIGNATURE') {
+        return 3000; // Poll every 3 seconds
+      }
+      return false; // Don't poll
+    },
+  });
 
   console.log('📝 APS Signing Screen initialized');
-  console.log('Agreement ID:', agreementId);
+  console.log('Offer ID:', offerId);
   console.log('Sign URL:', signUrl);
 
   // Check if signing is complete
   useEffect(() => {
-    if (agreement?.status === 'SIGNED') {
-      console.log('✅ Agreement signed successfully');
+    if (offer?.status === 'ACCEPTED') {
+      console.log('✅ Offer signed successfully');
       handleSigningComplete();
     }
-  }, [agreement?.status]);
+  }, [offer?.status]);
 
   // Set timeout for loading
   useEffect(() => {
@@ -116,7 +128,7 @@ export default function ApsSigningScreen() {
 
   const handleSigningComplete = () => {
     Alert.alert(
-      'Agreement Signed! ✅',
+      'Offer Signed! ✅',
       'Your Agreement of Purchase and Sale has been signed successfully.',
       [
         {

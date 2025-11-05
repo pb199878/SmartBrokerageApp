@@ -1,37 +1,44 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, TextInput, Button, Card, HelperText, Divider } from 'react-native-paper';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import type { RouteProp, NavigationProp } from '@react-navigation/native';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-import { usePrepareAgreement } from '../hooks/agreements';
-import { getGuidanceBySections, ApsIntake } from '@smart-brokerage/shared';
+import React, { useState } from "react";
+import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import {
+  Text,
+  TextInput,
+  Button,
+  Card,
+  HelperText,
+  Divider,
+} from "react-native-paper";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import type { RouteProp, NavigationProp } from "@react-navigation/native";
+import type { RootStackParamList } from "../navigation/AppNavigator";
+import { usePrepareOfferForSigning } from "../hooks/agreements";
+import { getGuidanceBySections, ApsIntake } from "@smart-brokerage/shared";
 
-type ApsGuidedFormRouteProp = RouteProp<RootStackParamList, 'ApsGuidedForm'>;
+type ApsGuidedFormRouteProp = RouteProp<RootStackParamList, "ApsGuidedForm">;
 type NavigationProps = NavigationProp<RootStackParamList>;
 
 export default function ApsGuidedFormScreen() {
   const route = useRoute<ApsGuidedFormRouteProp>();
   const navigation = useNavigation<NavigationProps>();
-  const { listingId, attachmentId, sellerEmail, sellerName } = route.params;
+  const { offerId, listingId, sellerEmail, sellerName } = route.params;
 
-  const prepareMutation = usePrepareAgreement();
+  const prepareMutation = usePrepareOfferForSigning();
   const guidanceSections = getGuidanceBySections();
 
   // Form state - Only seller-specific fields
   const [formData, setFormData] = useState<ApsIntake>({
-    sellerLegalName: sellerName || '',
-    sellerAddress: '',
-    sellerPhone: '',
-    sellerEmail: sellerEmail || '',
-    lawyerName: '',
-    lawyerFirm: '',
-    lawyerAddress: '',
-    lawyerPhone: '',
-    lawyerEmail: '',
-    exclusions: '',
-    rentalItems: '',
-    sellerNotes: '',
+    sellerLegalName: sellerName || "",
+    sellerAddress: "",
+    sellerPhone: "",
+    sellerEmail: sellerEmail || "",
+    lawyerName: "",
+    lawyerFirm: "",
+    lawyerAddress: "",
+    lawyerPhone: "",
+    lawyerEmail: "",
+    exclusions: "",
+    rentalItems: "",
+    sellerNotes: "",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -61,32 +68,31 @@ export default function ApsGuidedFormScreen() {
 
   const handleSubmit = async () => {
     if (!validateForm()) {
-      Alert.alert('Missing Information', 'Please fill in all required fields');
+      Alert.alert("Missing Information", "Please fill in all required fields");
       return;
     }
 
     try {
       const result = await prepareMutation.mutateAsync({
-        source: {
-          type: 'attachment',
-          attachmentId,
-        },
-        listingId,
+        offerId,
+        intake: formData,
         seller: {
           email: sellerEmail,
-          name: sellerName,
+          name: sellerName || "Seller",
         },
-        intake: formData,
       });
 
       // Navigate to signing screen
-      navigation.navigate('ApsSigning', {
-        agreementId: result.agreementId,
+      navigation.navigate("ApsSigning", {
+        offerId,
         signUrl: result.signUrl,
         listingId,
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to prepare agreement');
+      Alert.alert(
+        "Error",
+        error.message || "Failed to prepare offer for signing"
+      );
     }
   };
 
@@ -108,32 +114,32 @@ export default function ApsGuidedFormScreen() {
                 <Text variant="bodySmall" style={styles.description}>
                   {guidance.description}
                 </Text>
-                
+
                 <TextInput
                   mode="outlined"
-                  value={String(value || '')}
+                  value={String(value || "")}
                   onChangeText={(text) => updateField(field, text)}
                   placeholder={guidance.example}
                   multiline={
-                    field === 'inclusions' ||
-                    field === 'exclusions' ||
-                    field === 'fixtures' ||
-                    field === 'chattels' ||
-                    field === 'rentalItems'
+                    field === "inclusions" ||
+                    field === "exclusions" ||
+                    field === "fixtures" ||
+                    field === "chattels" ||
+                    field === "rentalItems"
                   }
                   numberOfLines={
-                    field === 'inclusions' ||
-                    field === 'exclusions' ||
-                    field === 'fixtures' ||
-                    field === 'chattels' ||
-                    field === 'rentalItems'
+                    field === "inclusions" ||
+                    field === "exclusions" ||
+                    field === "fixtures" ||
+                    field === "chattels" ||
+                    field === "rentalItems"
                       ? 4
                       : 1
                   }
                   error={!!errors[field]}
                   style={styles.input}
                 />
-                
+
                 {errors[field] && (
                   <HelperText type="error" visible={!!errors[field]}>
                     {errors[field]}
@@ -169,7 +175,9 @@ export default function ApsGuidedFormScreen() {
           <Card.Content>
             <Text variant="titleLarge">Review Your Information</Text>
             <Text variant="bodyMedium" style={styles.headerSubtext}>
-              Your contact and lawyer details are prefilled from your listing. Review them and add any items you're excluding or rental items, then proceed to sign.
+              Your contact and lawyer details are prefilled from your listing.
+              Review them and add any items you're excluding or rental items,
+              then proceed to sign.
             </Text>
           </Card.Content>
         </Card>
@@ -197,7 +205,7 @@ export default function ApsGuidedFormScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   scrollView: {
     flex: 1,
@@ -208,7 +216,7 @@ const styles = StyleSheet.create({
   },
   headerSubtext: {
     marginTop: 8,
-    color: '#666',
+    color: "#666",
   },
   sectionCard: {
     margin: 16,
@@ -220,7 +228,7 @@ const styles = StyleSheet.create({
   description: {
     marginTop: 4,
     marginBottom: 8,
-    color: '#666',
+    color: "#666",
   },
   input: {
     marginTop: 4,
@@ -228,17 +236,17 @@ const styles = StyleSheet.create({
   tipsContainer: {
     marginTop: 8,
     padding: 12,
-    backgroundColor: '#e3f2fd',
+    backgroundColor: "#e3f2fd",
     borderRadius: 8,
   },
   tipsTitle: {
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 4,
-    color: '#1976d2',
+    color: "#1976d2",
   },
   tip: {
     marginTop: 2,
-    color: '#1565c0',
+    color: "#1565c0",
   },
   fieldDivider: {
     marginTop: 12,
@@ -251,4 +259,3 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
 });
-

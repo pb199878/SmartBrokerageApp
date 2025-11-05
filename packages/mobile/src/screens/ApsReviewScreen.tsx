@@ -10,10 +10,10 @@ import { Text, Card, Button, Divider } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp, NavigationProp } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
-import { usePrepareAgreement } from "../hooks/agreements";
+import { usePrepareOfferForSigning } from "../hooks/agreements";
 import { getFieldGuidance } from "@smart-brokerage/shared";
 import { useQuery } from "@tanstack/react-query";
-import { listingsApi, attachmentsApi } from "../services/api";
+import { listingsApi, offersApi } from "../services/api";
 
 type ApsReviewRouteProp = RouteProp<RootStackParamList, "ApsReview">;
 type NavigationProps = NavigationProp<RootStackParamList>;
@@ -22,15 +22,15 @@ export default function ApsReviewScreen() {
   const route = useRoute<ApsReviewRouteProp>();
   const navigation = useNavigation<NavigationProps>();
   const {
+    offerId,
     listingId,
-    attachmentId,
     sellerEmail,
     sellerName,
     // Buyer's offer details (would come from the actual offer/attachment)
     buyerDetails,
   } = route.params;
 
-  const prepareMutation = usePrepareAgreement();
+  const prepareMutation = usePrepareOfferForSigning();
 
   // Fetch listing data to get seller/lawyer info
   const { data: listing, isLoading: listingLoading } = useQuery({
@@ -39,17 +39,17 @@ export default function ApsReviewScreen() {
     enabled: !!listingId,
   });
 
-  // Fetch attachment to get document analysis (buyer's offer details)
-  const { data: attachment, isLoading: attachmentLoading } = useQuery({
-    queryKey: ["attachment", attachmentId],
-    queryFn: () => attachmentsApi.get(attachmentId),
-    enabled: !!attachmentId,
+  // Fetch offer to get buyer's offer details
+  const { data: offer, isLoading: offerLoading } = useQuery({
+    queryKey: ["offer", offerId],
+    queryFn: () => offersApi.get(offerId),
+    enabled: !!offerId,
   });
 
-  const isLoading = listingLoading || attachmentLoading;
+  const isLoading = listingLoading || offerLoading;
 
-  // Extract buyer's offer from document analysis (DocuPipe extraction)
-  const buyerOfferFromAnalysis = attachment?.documentAnalysis?.extractedData;
+  // Extract buyer's offer from the offer data (already extracted during offer creation)
+  const buyerOfferFromAnalysis = offer || {};
 
   // Use real extracted data from DocuPipe, with fallback to provided buyerDetails or defaults
   const buyerOffer = {
@@ -119,31 +119,29 @@ export default function ApsReviewScreen() {
   const handleProceedToSign = async () => {
     try {
       const result = await prepareMutation.mutateAsync({
-        source: {
-          type: "attachment",
-          attachmentId,
-        },
-        listingId,
+        offerId,
+        intake: sellerData,
         seller: {
           email: sellerEmail,
-          name: sellerName,
+          name: sellerName || "Seller",
         },
-        intake: sellerData,
       });
 
       // Navigate to signing screen
       navigation.navigate("ApsSigning", {
-        agreementId: result.agreementId,
+        offerId,
         signUrl: result.signUrl,
         listingId,
       });
     } catch (error: any) {
-      console.error("Error preparing agreement:", error);
+      console.error("Error preparing offer for signing:", error);
 
       // Show the actual error message to help with debugging
       const errorMessage =
         error?.message || error?.toString() || "Unknown error occurred";
-      Alert.alert("Error Preparing Agreement", errorMessage, [{ text: "OK" }]);
+      Alert.alert("Error Preparing Offer for Signing", errorMessage, [
+        { text: "OK" },
+      ]);
     }
   };
 

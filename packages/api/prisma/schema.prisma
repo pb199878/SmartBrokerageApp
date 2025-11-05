@@ -7,7 +7,9 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("POOLER_DATABASE_URL")
+  url      = env("DATABASE_URL")
+  // For migrations, use: DATABASE_URL="<direct-url>?sslmode=require" npx prisma migrate deploy
+  // For runtime, use pooler connection (set in .env)
 }
 
 // Seed configuration
@@ -264,14 +266,27 @@ model Offer {
   originalDocumentS3Key       String? // Original unsigned offer from buyer agent
   signedDocumentS3Key         String? // Signed document after acceptance
   counterOfferDocumentS3Key   String? // Counter-offer document if sent
+  preparedDocumentS3Key       String? // Processed PDF with seller intake data prefilled
+  
+  // OREA form processing
+  oreaVersion                 String? // Detected OREA version (e.g., "APS-2024")
+  
+  // Seller guided intake
+  intakeData                  Json? // Seller's responses to guided intake form
+  sellerEmail                 String?
+  sellerName                  String?
   
   // Dropbox Sign tracking
   hellosignSignatureRequestId String? // Dropbox Sign signature request ID
+  hellosignSignatureId        String? // Dropbox Sign signature_id (for embedded signing)
+  signUrl                     String? // Embedded signing URL
+  signatureViewedAt           DateTime? // When seller opened the signing UI
   sellerSignedAt              DateTime?
   buyerSignedAt               DateTime?
   
   // Metadata
   declineReason               String?     @db.Text
+  errorMessage                String?     @db.Text // Error during preparation or signing
   createdAt                   DateTime    @default(now())
   updatedAt                   DateTime    @updatedAt
 
@@ -286,108 +301,11 @@ model Offer {
 }
 
 // ============================================================
-// AGREEMENTS (OREA APS)
+// AGREEMENTS - REMOVED (consolidated into Offer model)
 // ============================================================
-
-enum AgreementStatus {
-  PENDING_SELLER_INTAKE // Waiting for seller to fill guided form
-  PREPARING             // Server is preparing the PDF
-  READY_TO_SIGN         // Dropbox Sign signature request created
-  SIGNING_IN_PROGRESS   // Seller has opened the signing interface
-  SIGNED                // Fully signed
-  FAILED                // Error during preparation or signing
-  CANCELLED             // Cancelled by seller
-}
-
-model Agreement {
-  id                    String           @id @default(uuid())
-  listingId             String
-  threadId              String? // Optional link to thread if from email
-  
-  // Source document (buyer's APS)
-  buyerApsAttachmentId  String? // Link to attachment if from email
-  buyerApsFileKey       String? // Direct Supabase key if not from attachment
-  oreaVersion           String? // e.g., "APS-2024", "APS-2023"
-  
-  // Prepared document
-  preparedFileKey       String? // Supabase key for filled PDF
-  
-  // Seller info
-  sellerEmail           String
-  sellerName            String?
-  
-  // Intake data (JSON blob of seller responses)
-  intakeData            Json?
-  
-  // Status tracking
-  status                AgreementStatus  @default(PENDING_SELLER_INTAKE)
-  errorMessage          String?          @db.Text
-  
-  // Timestamps
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  preparedAt            DateTime?
-  signedAt              DateTime?
-
-  signatureRequests SignatureRequest[]
-
-  @@index([listingId])
-  @@index([threadId])
-  @@index([buyerApsAttachmentId])
-  @@index([status])
-  @@map("agreements")
-}
-
-// ============================================================
-// SIGNATURE REQUESTS (Dropbox Sign tracking)
-// ============================================================
-
-enum SignatureProvider {
-  DROPBOX_SIGN
-}
-
-enum SignatureRequestStatus {
-  CREATED           // Request created, URL generated
-  VIEWED            // Signer opened the document
-  SIGNED            // Signer completed signing
-  DECLINED          // Signer declined
-  CANCELLED         // Cancelled by us or provider
-  ERROR             // Error from provider
-}
-
-model SignatureRequest {
-  id                    String                  @id @default(uuid())
-  agreementId           String
-  
-  // Provider info
-  provider              SignatureProvider       @default(DROPBOX_SIGN)
-  providerRequestId     String // Dropbox Sign signature_request_id
-  providerSignatureId   String? // Dropbox Sign signature_id (per signer)
-  
-  // Signer info
-  signerEmail           String
-  signerName            String?
-  
-  // Status
-  status                SignatureRequestStatus  @default(CREATED)
-  
-  // URLs
-  signUrl               String? // Embedded signing URL
-  
-  // Document
-  finalDocumentFileKey  String? // Supabase key for final signed document
-  
-  // Timestamps
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-  viewedAt              DateTime?
-  signedAt              DateTime?
-
-  agreement Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-
-  @@index([agreementId])
-  @@index([providerRequestId])
-  @@index([status])
-  @@map("signature_requests")
-}
+// The Offer model now handles the complete workflow:
+// - Buyer's offer terms (from document analysis)
+// - Seller's guided intake data
+// - PDF preparation and signing
+// - Signature tracking
 

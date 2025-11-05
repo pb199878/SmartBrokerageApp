@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import axios, { AxiosInstance } from 'axios';
+import { Injectable } from "@nestjs/common";
+import axios, { AxiosInstance } from "axios";
 import {
   DocuPipeOREAForm100Response,
   DocuPipeUploadResponse,
   DocuPipeJobStatusResponse,
   DocuPipeExtractionResponse,
   SignatureInfo,
-} from './types';
+} from "./types";
 
 interface ExtractedOfferData {
   // Financial
@@ -14,40 +14,40 @@ interface ExtractedOfferData {
   deposit?: number;
   depositDue?: string;
   balanceDueOnClosing?: number;
-  
+
   // Dates
   closingDate?: string;
   possessionDate?: string;
   irrevocableDate?: string;
-  
+
   // Buyer Info
   buyerName?: string;
   buyerAddress?: string;
   buyerPhone?: string;
   buyerEmail?: string;
-  
+
   // Buyer's Lawyer
   buyerLawyer?: string;
   buyerLawyerAddress?: string;
   buyerLawyerPhone?: string;
   buyerLawyerEmail?: string;
-  
+
   // Property & Terms
   propertyAddress?: string;
   inclusions?: string;
   exclusions?: string;
   conditions?: string[];
-  
+
   // Condition Details
   financingCondition?: boolean;
   inspectionCondition?: boolean;
   saleOfPropertyCondition?: boolean;
   conditionWaiverDate?: string;
-  
+
   // Agent Info
   buyerAgentName?: string;
   buyerAgentBrokerage?: string;
-  
+
   // Signatures
   buyerSignature1Detected?: boolean;
   buyerSignature2Detected?: boolean;
@@ -61,19 +61,25 @@ export class DocuPipeService {
   private apiUrl: string;
 
   constructor() {
-    this.apiKey = process.env.DOCUPIPE_API_KEY || '';
-    this.apiUrl = process.env.DOCUPIPE_API_URL || 'https://api.docupipe.ai';
-    
+    this.apiKey = process.env.DOCUPIPE_API_KEY || "";
+    this.apiUrl = process.env.DOCUPIPE_API_URL || "https://app.docupipe.ai";
+
     if (!this.apiKey) {
-      console.warn('⚠️  DOCUPIPE_API_KEY not configured');
+      console.warn(
+        "⚠️  DOCUPIPE_API_KEY not configured - using basic extraction"
+      );
+    } else {
+      console.log("✓ DocuPipe.ai integration enabled");
     }
 
     this.client = axios.create({
       baseURL: this.apiUrl,
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       timeout: 60000, // 60 second timeout
+      // Force IPv4 to avoid some DNS issues
+      family: 4,
     });
   }
 
@@ -83,24 +89,41 @@ export class DocuPipeService {
    */
   async analyzeDocument(pdfBuffer: Buffer): Promise<string> {
     try {
-      console.log('📤 Uploading PDF to DocuPipe.ai...');
-      
+      console.log("📤 Uploading PDF to DocuPipe.ai...");
+
       const response = await this.client.post<DocuPipeUploadResponse>(
-        '/api/documents',
+        "/api/documents",
         pdfBuffer,
         {
           headers: {
-            'Content-Type': 'application/pdf',
+            "Content-Type": "application/pdf",
           },
         }
       );
 
       const jobId = response.data.jobId;
       console.log(`✅ DocuPipe upload successful. Job ID: ${jobId}`);
-      
+
       return jobId;
     } catch (error: any) {
-      console.error('❌ DocuPipe upload failed:', error.message);
+      // Provide helpful error messages
+      if (error.code === "ENOTFOUND") {
+        console.error(
+          "❌ DocuPipe service unavailable: DNS lookup failed for",
+          this.apiUrl
+        );
+        console.error(
+          "   This usually means the service is not configured or doesn't exist."
+        );
+        console.error(
+          "   Disable DOCUPIPE_API_KEY in .env to use basic extraction."
+        );
+        throw new Error(
+          `DocuPipe service unavailable (DNS lookup failed). Please disable DOCUPIPE_API_KEY or configure a valid endpoint.`
+        );
+      }
+
+      console.error("❌ DocuPipe upload failed:", error.message);
       throw new Error(`DocuPipe upload failed: ${error.message}`);
     }
   }
@@ -109,7 +132,9 @@ export class DocuPipeService {
    * Poll job status
    * Returns current status: 'processing' | 'completed' | 'failed'
    */
-  async pollJobStatus(jobId: string): Promise<'processing' | 'completed' | 'failed'> {
+  async pollJobStatus(
+    jobId: string
+  ): Promise<"processing" | "completed" | "failed"> {
     try {
       const response = await this.client.get<DocuPipeJobStatusResponse>(
         `/api/documents/${jobId}`
@@ -117,7 +142,7 @@ export class DocuPipeService {
 
       return response.data.status;
     } catch (error: any) {
-      console.error('❌ DocuPipe status check failed:', error.message);
+      console.error("❌ DocuPipe status check failed:", error.message);
       throw new Error(`DocuPipe status check failed: ${error.message}`);
     }
   }
@@ -134,24 +159,24 @@ export class DocuPipeService {
     while (true) {
       const status = await this.pollJobStatus(jobId);
 
-      if (status === 'completed') {
-        console.log('✅ DocuPipe processing completed');
+      if (status === "completed") {
+        console.log("✅ DocuPipe processing completed");
         return;
       }
 
-      if (status === 'failed') {
-        throw new Error('DocuPipe processing failed');
+      if (status === "failed") {
+        throw new Error("DocuPipe processing failed");
       }
 
       // Check timeout
       if (Date.now() - startTime > maxWaitTime) {
-        throw new Error('DocuPipe processing timeout (60s)');
+        throw new Error("DocuPipe processing timeout (60s)");
       }
 
       // Wait with exponential backoff
       console.log(`⏳ DocuPipe still processing... waiting ${backoff}ms`);
-      await new Promise(resolve => setTimeout(resolve, backoff));
-      
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+
       // Increase backoff (1s → 2s → 4s → 8s → 16s → 30s)
       backoff = Math.min(backoff * 2, 30000);
     }
@@ -161,18 +186,20 @@ export class DocuPipeService {
    * Get extraction results after job completes
    * Returns full DocuPipe OREA Form 100 response
    */
-  async getExtractionResults(jobId: string): Promise<DocuPipeOREAForm100Response> {
+  async getExtractionResults(
+    jobId: string
+  ): Promise<DocuPipeOREAForm100Response> {
     try {
-      console.log('📥 Retrieving DocuPipe extraction results...');
-      
+      console.log("📥 Retrieving DocuPipe extraction results...");
+
       const response = await this.client.get<DocuPipeExtractionResponse>(
         `/api/documents/${jobId}/results`
       );
 
-      console.log('✅ DocuPipe extraction results retrieved');
+      console.log("✅ DocuPipe extraction results retrieved");
       return response.data.data;
     } catch (error: any) {
-      console.error('❌ DocuPipe results retrieval failed:', error.message);
+      console.error("❌ DocuPipe results retrieval failed:", error.message);
       throw new Error(`DocuPipe results retrieval failed: ${error.message}`);
     }
   }
@@ -182,16 +209,16 @@ export class DocuPipeService {
    */
   detectSignatures(response: DocuPipeOREAForm100Response): SignatureInfo {
     const buyerSignatures = response.signatures?.buyer || [];
-    
-    const buyerSignature1Detected = 
-      buyerSignatures.length > 0 && 
+
+    const buyerSignature1Detected =
+      buyerSignatures.length > 0 &&
       !!buyerSignatures[0]?.name &&
-      buyerSignatures[0].name.trim() !== '';
-    
-    const buyerSignature2Detected = 
-      buyerSignatures.length > 1 && 
+      buyerSignatures[0].name.trim() !== "";
+
+    const buyerSignature2Detected =
+      buyerSignatures.length > 1 &&
       !!buyerSignatures[1]?.name &&
-      buyerSignatures[1].name.trim() !== '';
+      buyerSignatures[1].name.trim() !== "";
 
     return {
       buyerSignature1Detected,
@@ -202,21 +229,25 @@ export class DocuPipeService {
   /**
    * Convert DocuPipe date object to ISO string
    */
-  private convertDate(dateObj?: { day?: string; month?: string; year?: string }): string | undefined {
+  private convertDate(dateObj?: {
+    day?: string;
+    month?: string;
+    year?: string;
+  }): string | undefined {
     if (!dateObj || !dateObj.day || !dateObj.month || !dateObj.year) {
       return undefined;
     }
 
     try {
       // Pad day and month with leading zeros
-      const day = dateObj.day.padStart(2, '0');
-      const month = dateObj.month.padStart(2, '0');
+      const day = dateObj.day.padStart(2, "0");
+      const month = dateObj.month.padStart(2, "0");
       const year = dateObj.year;
 
       // Return ISO date string (YYYY-MM-DD)
       return `${year}-${month}-${day}`;
     } catch (error) {
-      console.warn('Failed to convert date:', dateObj);
+      console.warn("Failed to convert date:", dateObj);
       return undefined;
     }
   }
@@ -225,23 +256,28 @@ export class DocuPipeService {
    * Extract comprehensive offer data from DocuPipe response
    * Maps DocuPipe schema to our ExtractedOfferData interface
    */
-  extractComprehensiveOfferData(response: DocuPipeOREAForm100Response): ExtractedOfferData {
+  extractComprehensiveOfferData(
+    response: DocuPipeOREAForm100Response
+  ): ExtractedOfferData {
     const data: ExtractedOfferData = {};
 
     // Financial Details
     if (response.financialDetails) {
       data.purchasePrice = response.financialDetails.purchasePrice?.amount;
       data.deposit = response.financialDetails.deposit?.amount;
-      data.depositDue = response.financialDetails.deposit?.timing || 
-                        (response.financialDetails.deposit?.timing === 'Herewith' 
-                          ? 'Herewith' 
-                          : 'Upon Acceptance');
+      data.depositDue =
+        response.financialDetails.deposit?.timing ||
+        (response.financialDetails.deposit?.timing === "Herewith"
+          ? "Herewith"
+          : "Upon Acceptance");
     }
 
     // Dates
     if (response.terms) {
       data.closingDate = this.convertDate(response.terms.completion?.date);
-      data.irrevocableDate = this.convertDate(response.terms.irrevocability?.date);
+      data.irrevocableDate = this.convertDate(
+        response.terms.irrevocability?.date
+      );
       // possessionDate is usually same as closingDate unless specified otherwise
       data.possessionDate = data.closingDate;
     }
@@ -251,7 +287,10 @@ export class DocuPipeService {
       data.buyerName = response.parties.buyer;
     }
 
-    if (response.acknowledgement?.buyer && response.acknowledgement.buyer.length > 0) {
+    if (
+      response.acknowledgement?.buyer &&
+      response.acknowledgement.buyer.length > 0
+    ) {
       const buyerAck = response.acknowledgement.buyer[0];
       data.buyerAddress = buyerAck.addressForService;
       data.buyerPhone = buyerAck.phone;
@@ -282,8 +321,8 @@ export class DocuPipeService {
 
     // Conditions (from schedules - would need parsing)
     // For now, just note if Schedule A is attached
-    if (response.schedules && response.schedules.includes('A')) {
-      data.conditions = ['See Schedule A'];
+    if (response.schedules && response.schedules.includes("A")) {
+      data.conditions = ["See Schedule A"];
     }
 
     // Agent Info
@@ -296,7 +335,7 @@ export class DocuPipeService {
     const signatures = this.detectSignatures(response);
     data.buyerSignature1Detected = signatures.buyerSignature1Detected;
     data.buyerSignature2Detected = signatures.buyerSignature2Detected;
-    
+
     if (response.signatures?.buyer && response.signatures.buyer.length > 0) {
       data.buyerSignedDate = response.signatures.buyer[0].date;
     }
@@ -332,4 +371,3 @@ export class DocuPipeService {
     };
   }
 }
-

@@ -1,10 +1,15 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { DropboxSignService } from "../../common/dropbox-sign/dropbox-sign.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
 import { MailgunService } from "../../common/mailgun/mailgun.service";
+import { PdfService } from "./pdf.service";
 import { OfferStatus, MessageSubCategory } from "@prisma/client";
-import { DeclineOfferDto, CounterOfferDto } from "@smart-brokerage/shared";
+import {
+  DeclineOfferDto,
+  CounterOfferDto,
+  ApsIntake,
+} from "@smart-brokerage/shared";
 
 @Injectable()
 export class OffersService {
@@ -12,7 +17,8 @@ export class OffersService {
     private prisma: PrismaService,
     private dropboxSignService: DropboxSignService,
     private supabaseService: SupabaseService,
-    private mailgunService: MailgunService
+    private mailgunService: MailgunService,
+    private pdfService: PdfService
   ) {}
 
   /**
@@ -352,17 +358,26 @@ export class OffersService {
   }
 
   /**
-   * Accept offer - Creates Dropbox Sign embedded signature request
+   * Prepare offer for signing with guided intake workflow
+   * - Loads buyer's original PDF
+   * - Detects OREA version
+   * - Flattens buyer's fields (preserves their data)
+   * - Prefills seller's intake data
+   * - Creates Dropbox Sign embedded signature request
    */
-  async acceptOffer(
-    offerId: string
+  async prepareOfferForSigning(
+    offerId: string,
+    intake: ApsIntake,
+    seller: { email: string; name: string }
   ): Promise<{ signUrl: string; expiresAt: number }> {
+    console.log(`📝 Preparing offer ${offerId} for signing with guided intake`);
+
     const offer = await this.getOffer(offerId);
 
     // Validate offer can be accepted
     if (offer.status !== OfferStatus.PENDING_REVIEW) {
       throw new Error(
-        `Offer cannot be accepted. Current status: ${offer.status}`
+        `Offer cannot be prepared for signing. Current status: ${offer.status}`
       );
     }
 
@@ -380,53 +395,126 @@ export class OffersService {
       throw new Error("No offer document found");
     }
 
-    const signedUrl = await this.supabaseService.getSignedUrl(
-      "attachments",
-      offer.originalDocumentS3Key,
-      3600 // 1 hour
-    );
+    try {
+      // 1. Download buyer's original PDF
+      const buyerPdfUrl = await this.supabaseService.getSignedUrl(
+        "attachments",
+        offer.originalDocumentS3Key,
+        3600
+      );
+      const buyerPdf = await this.pdfService.downloadPdfFromUrl(buyerPdfUrl);
 
-    // Create embedded signature request for seller
-    // This must succeed before we update the offer status
-    const signatureRequest =
-      await this.dropboxSignService.createEmbeddedSignatureRequest({
-        title: `Accept Offer - ${offer.thread.listing.address}`,
-        subject: `Acceptance of Offer for ${offer.thread.listing.address}`,
-        message: "Please review and sign to accept this offer.",
-        signers: [
-          {
-            emailAddress: `seller-${offer.thread.listing.sellerId}@temp.com`, // Placeholder email for embedded signing
-            name: "Seller",
-            order: 0,
+      // 2. Detect OREA version
+      const oreaVersion = await this.pdfService.detectOreaVersion(buyerPdf);
+      if (!oreaVersion) {
+        throw new BadRequestException(
+          "Could not detect OREA version. Please ensure this is a valid OREA APS form."
+        );
+      }
+      console.log(`   Detected OREA version: ${oreaVersion}`);
+
+      // 3. Flatten buyer's PDF (preserve their filled fields as read-only)
+      const flattenedPdf = await this.pdfService.flattenPdf(buyerPdf);
+
+      // 4. Prefill seller's intake data onto the flattened PDF
+      const preparedPdf = await this.pdfService.prefillSellerData(
+        flattenedPdf,
+        intake,
+        oreaVersion
+      );
+
+      // 5. Upload prepared PDF to Supabase
+      const preparedS3Key = `offers/${offer.thread.listingId}/${
+        offer.threadId
+      }/${offer.id}/prepared_${Date.now()}.pdf`;
+      await this.supabaseService.uploadFile(
+        "attachments",
+        preparedS3Key,
+        preparedPdf,
+        "application/pdf"
+      );
+      console.log(`   Uploaded prepared PDF to: ${preparedS3Key}`);
+
+      // 6. Create Dropbox Sign embedded signature request with the prepared PDF
+      const signatureRequest =
+        await this.dropboxSignService.createEmbeddedSignatureRequest({
+          title: `Sign Agreement of Purchase and Sale - ${offer.thread.listing.address}`,
+          subject: `Agreement of Purchase and Sale for ${offer.thread.listing.address}`,
+          message:
+            "Please review and sign this Agreement of Purchase and Sale.",
+          signers: [
+            {
+              emailAddress: seller.email,
+              name: seller.name || "Seller",
+              order: 0,
+            },
+          ],
+          file: preparedPdf, // Send the prepared PDF buffer
+          filename: `APS_${offer.thread.listing.address}_${Date.now()}.pdf`,
+          metadata: {
+            offerId: offer.id,
+            threadId: offer.threadId,
+            action: "accept",
           },
-        ],
-        fileUrl: signedUrl,
-        metadata: {
-          offerId: offer.id,
-          threadId: offer.threadId,
-          action: "accept",
+        });
+
+      console.log(
+        `   Created Dropbox Sign request: ${signatureRequest.signatureRequestId}`
+      );
+
+      // 7. Update offer with all the new data
+      await this.prisma.offer.update({
+        where: { id: offerId },
+        data: {
+          status: OfferStatus.AWAITING_SELLER_SIGNATURE,
+          hellosignSignatureRequestId: signatureRequest.signatureRequestId,
+          hellosignSignatureId: signatureRequest.signatureId,
+          signUrl: signatureRequest.signUrl,
+          preparedDocumentS3Key: preparedS3Key,
+          oreaVersion,
+          intakeData: intake as any,
+          sellerEmail: seller.email,
+          sellerName: seller.name,
         },
       });
 
-    // Only update status AFTER successful signature request creation
-    await this.prisma.offer.update({
-      where: { id: offerId },
-      data: {
-        status: OfferStatus.AWAITING_SELLER_SIGNATURE,
-        hellosignSignatureRequestId: signatureRequest.signatureRequestId,
-      },
-    });
+      console.log(`✅ Offer ${offerId} prepared for signing`);
+      console.log(`   Sign URL: ${signatureRequest.signUrl}`);
+      console.log(
+        `   Expires: ${new Date(
+          signatureRequest.expiresAt * 1000
+        ).toISOString()}`
+      );
 
-    console.log(`✅ Created signature request for offer ${offerId}`);
-    console.log(`   Sign URL: ${signatureRequest.signUrl}`);
-    console.log(
-      `   Expires: ${new Date(signatureRequest.expiresAt * 1000).toISOString()}`
+      return {
+        signUrl: signatureRequest.signUrl,
+        expiresAt: signatureRequest.expiresAt,
+      };
+    } catch (error) {
+      console.error(`❌ Error preparing offer for signing:`, error.message);
+
+      // Update offer with error status
+      await this.prisma.offer.update({
+        where: { id: offerId },
+        data: {
+          errorMessage: `Failed to prepare offer: ${error.message}`,
+        },
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * @deprecated Use prepareOfferForSigning() instead
+   * Legacy quick accept method - kept for backwards compatibility
+   */
+  async acceptOffer(
+    offerId: string
+  ): Promise<{ signUrl: string; expiresAt: number }> {
+    throw new Error(
+      "Quick accept is no longer supported. Use prepareOfferForSigning() with guided intake instead."
     );
-
-    return {
-      signUrl: signatureRequest.signUrl,
-      expiresAt: signatureRequest.expiresAt,
-    };
   }
 
   /**
@@ -655,6 +743,10 @@ export class OffersService {
 
     // Handle different webhook events
     switch (eventType) {
+      case "signature_request_viewed":
+        await this.handleSignatureViewed(offer);
+        break;
+
       case "signature_request_signed":
         await this.handleSignatureCompleted(offer, signatureRequest);
         break;
@@ -670,6 +762,20 @@ export class OffersService {
       default:
         console.log(`Unhandled event type: ${eventType}`);
     }
+  }
+
+  /**
+   * Handle signature_request_viewed event
+   */
+  private async handleSignatureViewed(offer: any): Promise<void> {
+    console.log(`👁️  Signature request viewed for offer ${offer.id}`);
+
+    await this.prisma.offer.update({
+      where: { id: offer.id },
+      data: {
+        signatureViewedAt: new Date(),
+      },
+    });
   }
 
   /**

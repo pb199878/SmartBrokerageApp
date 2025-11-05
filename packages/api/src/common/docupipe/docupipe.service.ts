@@ -576,7 +576,7 @@ export class DocuPipeService {
 
         // Standardize the document (will auto-resolve schema ID if needed)
         const { jobId: stdJobId, standardizationIds } =
-          await this.standardizeDocuments([documentId]);
+          await this.standardizeDocuments([documentId], "VcJ6KUYo");
 
         // Poll until standardization completes
         await this.waitForCompletion(stdJobId);

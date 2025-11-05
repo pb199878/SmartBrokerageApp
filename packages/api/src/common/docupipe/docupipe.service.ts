@@ -269,8 +269,9 @@ export class DocuPipeService {
     try {
       console.log(`🔍 Looking up schema ID for: "${name}"`);
 
-      const response = await this.listSchemas();
-      const schema = response.schemas.find(
+      const schemas = await this.listSchemas();
+      // Response is an array directly, not wrapped in { schemas: [...] }
+      const schema = schemas.find(
         (s) => s.name.toLowerCase() === name.toLowerCase()
       );
 
@@ -280,10 +281,10 @@ export class DocuPipeService {
       }
 
       console.warn(`⚠️  Schema "${name}" not found in DocuPipe`);
-      if (response.schemas && response.schemas.length > 0) {
+      if (schemas && schemas.length > 0) {
         console.log(
           "Available schemas:",
-          response.schemas.map((s) => s.name).join(", ")
+          schemas.map((s) => s.name).join(", ")
         );
       }
       return null;

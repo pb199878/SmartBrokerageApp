@@ -47,7 +47,10 @@ export interface DocuPipePurchasePrice {
 }
 
 export interface DocuPipeDeposit {
-  timing?: 'Herewith' | 'Upon Acceptance' | 'as otherwise described in this Agreement';
+  timing?:
+    | "Herewith"
+    | "Upon Acceptance"
+    | "as otherwise described in this Agreement";
   amount?: number;
   currency?: string;
   payableTo?: string;
@@ -55,7 +58,7 @@ export interface DocuPipeDeposit {
 
 export interface DocuPipeHST {
   applicability?: boolean;
-  inclusion?: 'included in' | 'in addition to';
+  inclusion?: "included in" | "in addition to";
 }
 
 export interface DocuPipeFinancialDetails {
@@ -66,7 +69,7 @@ export interface DocuPipeFinancialDetails {
 }
 
 export interface DocuPipeIrrevocability {
-  party?: 'Seller' | 'Buyer';
+  party?: "Seller" | "Buyer";
   until?: string;
   date?: DocuPipeDateObject;
 }
@@ -193,7 +196,7 @@ export interface DocuPipeOREAForm100Response {
 export interface DocuPipeUploadResponse {
   jobId: string;
   documentId: string;
-  status: 'processing' | 'completed' | 'failed';
+  status: "processing" | "completed" | "failed";
 }
 
 /**
@@ -201,7 +204,7 @@ export interface DocuPipeUploadResponse {
  */
 export interface DocuPipeJobStatusResponse {
   jobId: string;
-  status: 'processing' | 'completed' | 'failed' | 'error';
+  status: "processing" | "completed" | "failed" | "error";
   progress?: number;
   error?: string;
 }
@@ -211,27 +214,41 @@ export interface DocuPipeJobStatusResponse {
  */
 export interface DocuPipeExtractionResponse {
   jobId: string;
-  status: 'completed';
+  status: "completed";
   data: DocuPipeOREAForm100Response;
 }
 
 /**
  * DocuPipe API response for standardization batch request
+ * Returned when submitting documents for standardization
  */
 export interface DocuPipeStandardizeResponse {
   jobId: string;
+  status: "processing" | "completed" | "failed" | "error";
+  timestamp: string;
+  documentCount: number;
+  pageCount: number;
+  standardizationJobIds?: string[]; // Deprecated - use standardizationIds
   standardizationIds: string[];
+  details?: string;
 }
 
 /**
  * DocuPipe API response for standardization results
+ * Returned when retrieving a completed standardization
  */
 export interface DocuPipeStandardizationResult {
   standardizationId: string;
   documentId: string;
+  data: DocuPipeOREAForm100Response; // The extracted schema data
   schemaId: string;
-  data: DocuPipeOREAForm100Response;
-  status: 'completed';
+  schemaName: string;
+  jobId: string;
+  dataset?: string;
+  filename: string;
+  displayMode?: "auto" | string;
+  timestamp: string;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -255,8 +272,6 @@ export interface DocuPipeSchema {
 
 /**
  * DocuPipe List Schemas response
+ * Returns an array of schemas directly (not wrapped in an object)
  */
-export interface DocuPipeListSchemasResponse {
-  schemas: DocuPipeSchema[];
-}
-
+export type DocuPipeListSchemasResponse = DocuPipeSchema[];

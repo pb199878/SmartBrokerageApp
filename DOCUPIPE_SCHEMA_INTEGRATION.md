@@ -142,8 +142,8 @@ export interface DocuPipeStandardizationResult {
 Lists all available schemas in your DocuPipe account.
 
 ```typescript
-const response = await this.docuPipeService.listSchemas();
-// response.schemas = [{ id, name, description, ... }, ...]
+const schemas = await this.docuPipeService.listSchemas();
+// Returns array directly: [{ id, name, description, ... }, ...]
 ```
 
 #### `findSchemaIdByName(name)`

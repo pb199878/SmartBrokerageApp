@@ -48,8 +48,10 @@ The system checks in this order:
 
 ### `listSchemas()`
 ```typescript
-const response = await docuPipeService.listSchemas();
-console.log(response.schemas); // [{ id, name, description }, ...]
+const schemas = await docuPipeService.listSchemas();
+// Calls: GET /schemas
+// Returns array directly (no wrapper object)
+console.log(schemas); // [{ id, name, description }, ...]
 ```
 
 ### `findSchemaIdByName(name)`
@@ -90,14 +92,24 @@ Available schemas: APS Schema V2, Amendment Schema, Waiver Schema
 
 ## Quick Setup
 
-Just add to your `.env`:
+**If your DocuPipe plan supports listing schemas:**
 
 ```bash
 DOCUPIPE_API_KEY="your-api-key"
 DOCUPIPE_SCHEMA_NAME="APS Schema V2"
 ```
 
-That's it! The system handles the rest automatically.
+**If you get HTTP 405 errors (schema listing not supported):**
+
+```bash
+DOCUPIPE_API_KEY="your-api-key"
+DOCUPIPE_SCHEMA_ID="your-actual-schema-id"  # Get from DocuPipe dashboard
+```
+
+The system will:
+1. Try to list schemas via `GET /schemas`
+2. If that fails with 405, fall back to requiring `DOCUPIPE_SCHEMA_ID`
+3. If no schema configured, use legacy extraction (no schema)
 
 ## Production Recommendation
 

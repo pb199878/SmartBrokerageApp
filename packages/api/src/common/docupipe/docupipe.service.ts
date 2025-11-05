@@ -238,15 +238,24 @@ export class DocuPipeService {
 
   /**
    * List all schemas from DocuPipe
+   * Note: This endpoint might not be available on all DocuPipe plans
    */
   async listSchemas(): Promise<DocuPipeListSchemasResponse> {
     try {
       const response = await this.client.get<DocuPipeListSchemasResponse>(
-        "/schema"
+        "/schemas"
       );
       return response.data;
     } catch (error: any) {
       console.error("❌ DocuPipe list schemas failed:", error.message);
+      if (error.response?.status === 405) {
+        console.error(
+          "   HTTP 405: Method Not Allowed - Your DocuPipe plan might not support listing schemas via API"
+        );
+        console.error(
+          "   Please set DOCUPIPE_SCHEMA_ID directly in your .env file"
+        );
+      }
       throw new Error(`DocuPipe list schemas failed: ${error.message}`);
     }
   }
@@ -254,6 +263,7 @@ export class DocuPipeService {
   /**
    * Find schema ID by name
    * Caches result to avoid repeated API calls
+   * Returns null if API doesn't support listing schemas
    */
   async findSchemaIdByName(name: string): Promise<string | null> {
     try {
@@ -270,13 +280,18 @@ export class DocuPipeService {
       }
 
       console.warn(`⚠️  Schema "${name}" not found in DocuPipe`);
-      console.log(
-        "Available schemas:",
-        response.schemas.map((s) => s.name).join(", ")
-      );
+      if (response.schemas && response.schemas.length > 0) {
+        console.log(
+          "Available schemas:",
+          response.schemas.map((s) => s.name).join(", ")
+        );
+      }
       return null;
     } catch (error: any) {
       console.error("❌ Failed to lookup schema:", error.message);
+      console.error(
+        "   Consider setting DOCUPIPE_SCHEMA_ID directly instead of DOCUPIPE_SCHEMA_NAME"
+      );
       return null;
     }
   }

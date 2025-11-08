@@ -3,8 +3,8 @@ import { PrismaService } from "../../common/prisma/prisma.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
 import { ApsParserService } from "../aps-parser/aps-parser.service";
 import { ApsParseResult } from "@smart-brokerage/shared";
-import { PDFDocument } from "pdf-lib";
 import axios from "axios";
+import { PDFParse } from "pdf-parse";
 
 interface OREAFormDetectionResult {
   isOREAForm: boolean;
@@ -222,50 +222,25 @@ export class DocumentsService {
   }
 
   /**
-   * Extract text from PDF buffer using pdf-lib
+   * Extract text from PDF buffer using pdf-parse
    */
   private async extractPDFText(buffer: Buffer): Promise<any> {
     try {
-      const pdfDoc = await PDFDocument.load(buffer);
-      const pages = pdfDoc.getPages();
-      const numPages = pages.length;
+      // Use pdf-parse for proper text extraction from PDF pages
+      const parser = new PDFParse({ data: buffer });
+      const textResult = await parser.getText();
 
-      // Extract text from form fields (if any)
-      let textContent = "";
-      try {
-        const form = pdfDoc.getForm();
-        const fields = form.getFields();
+      console.log(
+        `📄 Extracted ${textResult.text.length} characters from ${textResult.total} pages using pdf-parse`
+      );
 
-        for (const field of fields) {
-          const fieldName = field.getName();
-          let value: string | null = null;
+      // Get metadata
+      const infoResult = await parser.getInfo();
 
-          try {
-            const fieldType = field.constructor.name;
-            if (fieldType === "PDFTextField") {
-              value = (field as any).getText() || null;
-            }
-          } catch (err) {
-            // Skip fields that can't be read
-          }
-
-          if (value) {
-            textContent += `${fieldName}: ${value}\n`;
-          }
-        }
-      } catch (formError) {
-        // No form fields or error reading them
-        console.log("No readable form fields found");
-      }
-
-      // Return in pdf-parse compatible format
       return {
-        text:
-          textContent || "PDF loaded successfully (text extraction limited)",
-        numpages: numPages,
-        info: {
-          Title: pdfDoc.getTitle() || "",
-        },
+        text: textResult.text,
+        numpages: textResult.total,
+        info: infoResult.info || {},
       };
     } catch (error) {
       console.error("Error extracting PDF text:", error);

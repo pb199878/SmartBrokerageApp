@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Param,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
@@ -48,6 +49,33 @@ export class DocumentsController {
       };
     } catch (error) {
       console.error('❌ Parse failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        stack: error.stack,
+      };
+    }
+  }
+
+  /**
+   * Test endpoint for full attachment analysis
+   * POST /documents/test-analyze-attachment/:attachmentId
+   * Analyzes an existing attachment by ID (must be in database)
+   */
+  @Post('test-analyze-attachment/:attachmentId')
+  async testAnalyzeAttachment(@Param('attachmentId') attachmentId: string) {
+    console.log(`🧪 Testing attachment analysis for: ${attachmentId}`);
+
+    try {
+      const result = await this.documentsService.analyzeAttachment(attachmentId);
+      
+      return {
+        success: true,
+        data: result,
+        message: 'Attachment analyzed successfully',
+      };
+    } catch (error) {
+      console.error('❌ Analysis failed:', error);
       return {
         success: false,
         error: error.message,

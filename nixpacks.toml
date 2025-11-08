@@ -1,0 +1,20 @@
+[phases.setup]
+aptPkgs = [
+  "build-essential",
+  "libcairo2-dev",
+  "libpango1.0-dev",
+  "libjpeg-dev",
+  "libgif-dev",
+  "librsvg2-dev",
+  "libpixman-1-dev"
+]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build:api"]
+
+[start]
+cmd = "npm run start:prod --workspace=@smart-brokerage/api"
+

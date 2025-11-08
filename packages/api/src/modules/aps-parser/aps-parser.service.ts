@@ -3,9 +3,6 @@ import { ApsParseResult, GeminiApsSchema } from "@smart-brokerage/shared";
 import { PDFDocument } from "pdf-lib";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
-const { createCanvas } = require("canvas");
-
 @Injectable()
 export class ApsParserService {
   private genAI: GoogleGenerativeAI | null = null;
@@ -147,19 +144,17 @@ export class ApsParserService {
   }
 
   /**
-   * Tier 2: Extract data using Gemini Vision API
+   * Tier 2: Extract data using Gemini Vision API with PDF as inline data
    */
   private async tryGeminiExtraction(
     pdfBuffer: Buffer
   ): Promise<ApsParseResult> {
     try {
-      // Convert PDF to images (first 3 pages - most critical info)
-      const images = await this.convertPdfToImages(pdfBuffer, 3);
-      console.log(`📸 Converted ${images.length} pages to images`);
+      console.log(`📄 Preparing PDF for Gemini (${pdfBuffer.length} bytes)`);
 
-      // Prepare Gemini model
+      // Prepare Gemini model (2.0 Flash supports PDFs)
       const model = this.genAI!.getGenerativeModel({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash-exp",
       });
 
       // Build the structured prompt
@@ -182,17 +177,18 @@ CRITICAL INSTRUCTIONS:
 
 Return the JSON now:`;
 
-      // Send to Gemini with images
-      console.log("🤖 Sending to Gemini Vision API...");
+      // Send to Gemini with PDF as inline base64 data
+      console.log("🤖 Sending PDF to Gemini Vision API...");
 
-      const imageParts = images.map((imageData) => ({
-        inlineData: {
-          data: imageData.toString("base64"),
-          mimeType: "image/png",
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType: "application/pdf",
+            data: pdfBuffer.toString("base64"),
+          },
         },
-      }));
-
-      const result = await model.generateContent([prompt, ...imageParts]);
+      ]);
       const response = result.response;
       const text = response.text();
 
@@ -224,42 +220,6 @@ Return the JSON now:`;
       console.error("❌ Gemini extraction failed:", error);
       throw error;
     }
-  }
-
-  /**
-   * Convert PDF pages to PNG images for Gemini
-   */
-  private async convertPdfToImages(
-    pdfBuffer: Buffer,
-    maxPages: number = 3
-  ): Promise<Buffer[]> {
-    const uint8Array = new Uint8Array(pdfBuffer);
-    const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
-    const pdfDoc = await loadingTask.promise;
-
-    const images: Buffer[] = [];
-    const pagesToProcess = Math.min(pdfDoc.numPages, maxPages);
-
-    for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
-      const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.0 }); // High resolution for better OCR
-
-      const canvas = createCanvas(
-        Math.ceil(viewport.width),
-        Math.ceil(viewport.height)
-      );
-      const context = canvas.getContext("2d");
-
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
-
-      const imageBuffer = canvas.toBuffer("image/png");
-      images.push(imageBuffer);
-    }
-
-    return images;
   }
 
   /**

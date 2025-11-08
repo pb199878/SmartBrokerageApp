@@ -223,10 +223,7 @@ model DocumentAnalysis {
   validationErrors         Json?    // Array of validation issues
   hasRequiredSignatures    Boolean? // Buyer signatures detected
   priceMatchesExtracted    Boolean? // Price field filled correctly
-  docupipeJobId            String?  // DocuPipe job ID for reference
-  docupipeDocumentId       String?  // DocuPipe document ID (for standardization workflow)
-  docupipeStandardizationId String? // DocuPipe standardization ID (when using schema)
-  formFieldsExtracted      Json?    // Raw DocuPipe form fields (full response)
+  formFieldsExtracted      Json?    // Raw APS parser result (ApsParseResult)
 
   attachments Attachment[]
 

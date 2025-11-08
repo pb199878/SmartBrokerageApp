@@ -51,7 +51,7 @@ export default function ApsReviewScreen() {
   // Extract buyer's offer from the offer data (already extracted during offer creation)
   const buyerOfferFromAnalysis = offer || {};
 
-  // Use real extracted data from DocuPipe, with fallback to provided buyerDetails or defaults
+  // Use real extracted data from APS parser, with fallback to provided buyerDetails or defaults
   const buyerOffer = {
     purchasePrice:
       buyerOfferFromAnalysis?.purchasePrice ||

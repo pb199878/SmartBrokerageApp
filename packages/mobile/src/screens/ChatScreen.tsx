@@ -27,6 +27,36 @@ import OfferCard from "../components/OfferCard";
 type ChatRouteProp = RouteProp<RootStackParamList, "Chat">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Helper function to extract buyer details from offer's document analysis
+function extractBuyerDetailsFromOffer(offer: any) {
+  // Look for document analysis in the offer's messages
+  const documentAnalysis = offer?.messages
+    ?.flatMap((msg: any) => msg.attachments || [])
+    ?.find((att: any) => att.documentAnalysis?.extractedData)?.documentAnalysis;
+
+  if (!documentAnalysis?.extractedData) {
+    return {
+      buyerName: undefined,
+      buyerLawyer: undefined,
+      inclusions: undefined,
+      exclusions: undefined,
+      depositDue: undefined,
+      possessionDate: undefined,
+    };
+  }
+
+  const data = documentAnalysis.extractedData;
+
+  return {
+    buyerName: data.buyerName,
+    buyerLawyer: data.buyerLawyer,
+    inclusions: data.inclusions,
+    exclusions: data.exclusions,
+    depositDue: data.depositDue,
+    possessionDate: data.possessionDate,
+  };
+}
+
 export default function ChatScreen() {
   const route = useRoute<ChatRouteProp>();
   const navigation = useNavigation<NavigationProp>();
@@ -266,9 +296,15 @@ export default function ChatScreen() {
               // Navigate to APS review screen with buyer details from offer
               const offer = offers?.find((o) => o.id === offerId);
               if (!thread?.listingId || !offerId) {
-                console.error("No listingId or offerId available for APS review");
+                console.error(
+                  "No listingId or offerId available for APS review"
+                );
                 return;
               }
+
+              // Extract buyer details from document analysis
+              const extractedDetails = extractBuyerDetailsFromOffer(offer);
+
               navigation.navigate("ApsReview", {
                 offerId: offerId,
                 listingId: thread.listingId,
@@ -278,17 +314,24 @@ export default function ChatScreen() {
                   ? {
                       purchasePrice: offer.price || 0,
                       deposit: offer.deposit || 0,
-                      depositDue: "Within 24 hours of acceptance",
+                      depositDue:
+                        extractedDetails.depositDue ||
+                        "Within 24 hours of acceptance",
                       closingDate: offer.closingDate
                         ? new Date(offer.closingDate)
                         : new Date(),
-                      possessionDate: offer.closingDate
+                      possessionDate: extractedDetails.possessionDate
+                        ? new Date(extractedDetails.possessionDate)
+                        : offer.closingDate
                         ? new Date(offer.closingDate)
                         : new Date(),
                       conditions: offer.conditions || "As per APS document",
-                      inclusions: "As per APS document", // TODO: Parse from document analysis
-                      buyerName: "As per APS document", // TODO: Parse from document analysis
-                      buyerLawyer: "As per APS document", // TODO: Parse from document analysis
+                      inclusions:
+                        extractedDetails.inclusions || "As per APS document",
+                      buyerName:
+                        extractedDetails.buyerName || "As per APS document",
+                      buyerLawyer:
+                        extractedDetails.buyerLawyer || "As per APS document",
                     }
                   : undefined,
               });

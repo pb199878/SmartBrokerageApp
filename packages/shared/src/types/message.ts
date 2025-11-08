@@ -143,6 +143,15 @@ export interface Offer {
   declineReason?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  
+  // Relations (populated when fetching offers with includes)
+  messages?: OfferMessage[];
+}
+
+// Message with attachments for offer context
+export interface OfferMessage {
+  id: string;
+  attachments?: Attachment[];
 }
 
 // ============================================================

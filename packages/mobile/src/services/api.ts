@@ -14,6 +14,7 @@ import type {
   PrepareOfferForSigningResponse,
   ApiResponse,
   ApsIntake,
+  ApsParseResult,
 } from '@smart-brokerage/shared';
 
 const api = axios.create({
@@ -129,6 +130,35 @@ export const attachmentsApi = {
   getPreviewUrl: async (id: string): Promise<string> => {
     const response = await api.get(`/attachments/${id}/preview`);
     return response.data.data.url;
+  },
+};
+
+// ============================================================
+// DOCUMENTS API
+// ============================================================
+
+export const documentsApi = {
+  /**
+   * Get parsed APS data for an attachment
+   * Returns the structured extraction result from the APS parser
+   */
+  getParsedAps: async (attachmentId: string): Promise<ApsParseResult | null> => {
+    try {
+      const response = await api.get(`/documents/${attachmentId}/parsed-aps`);
+      return response.data.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null; // Document not analyzed yet
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Trigger analysis of an attachment
+   */
+  analyzeAttachment: async (attachmentId: string): Promise<void> => {
+    await api.post(`/documents/${attachmentId}/analyze`);
   },
 };
 

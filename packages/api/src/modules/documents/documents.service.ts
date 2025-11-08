@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
-import { DocuPipeService } from "../../common/docupipe/docupipe.service";
-import { DocuPipeOREAForm100Response } from "../../common/docupipe/types";
+import { ApsParserService } from "../aps-parser/aps-parser.service";
+import { ApsParseResult } from "@smart-brokerage/shared";
 import axios from "axios";
 
 interface OREAFormDetectionResult {
@@ -77,7 +77,7 @@ export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private supabaseService: SupabaseService,
-    private docuPipeService: DocuPipeService
+    private apsParserService: ApsParserService
   ) {}
 
   /**
@@ -120,9 +120,6 @@ export class DocumentsService {
 
       // Extract offer data if it's an OREA form
       let extractedData: ExtractedOfferData | null = null;
-      let docupipeJobId: string | undefined;
-      let docupipeDocumentId: string | undefined;
-      let docupipeStandardizationId: string | undefined;
       let formFieldsExtracted: any = undefined;
       let validationStatus: string | undefined;
       let validationErrors: any = undefined;
@@ -130,67 +127,44 @@ export class DocumentsService {
       let priceMatchesExtracted: boolean | undefined;
 
       if (oreaDetection.isOREAForm) {
-        // First, do basic extraction from text
-        extractedData = this.extractOfferData(textContent);
+        // Use APS parser for comprehensive extraction
+        try {
+          console.log("🔍 Using APS parser for comprehensive extraction...");
 
-        // Then, if DocuPipe is configured, use it for comprehensive extraction and validation
-        if (process.env.DOCUPIPE_API_KEY) {
-          try {
-            console.log("🔍 Using DocuPipe for comprehensive extraction...");
+          const apsResult: ApsParseResult =
+            await this.apsParserService.parseAps(pdfBuffer);
 
-            const docupipeResult = await this.docuPipeService.analyzeAndExtract(
-              pdfBuffer,
-              attachment.filename
-            );
-            docupipeJobId = docupipeResult.jobId;
-            docupipeDocumentId = docupipeResult.documentId;
-            docupipeStandardizationId = docupipeResult.standardizationId;
-            formFieldsExtracted = docupipeResult.rawResponse;
+          // Convert APS result to legacy ExtractedOfferData format
+          extractedData = this.convertApsResultToLegacyFormat(apsResult);
 
-            // Merge DocuPipe extraction with basic extraction (DocuPipe takes precedence)
-            extractedData = {
-              ...extractedData,
-              ...docupipeResult.extractedData,
-            };
+          // Store the full APS result in formFieldsExtracted
+          formFieldsExtracted = apsResult;
 
-            // Also set legacy fields for backward compatibility
-            if (extractedData.purchasePrice) {
-              extractedData.price = extractedData.purchasePrice;
-            }
-            if (extractedData.irrevocableDate) {
-              extractedData.expiryDate = extractedData.irrevocableDate;
-            }
-
-            // Validate the form
-            const validation = this.validateOREAForm(
-              docupipeResult.rawResponse
-            );
-            validationStatus = validation.validationStatus;
-            validationErrors =
-              validation.errors.length > 0 ? validation.errors : undefined;
-            hasRequiredSignatures =
-              extractedData.buyerSignature1Detected || false;
-            priceMatchesExtracted = extractedData.purchasePrice
-              ? extractedData.purchasePrice > 0
-              : false;
-
-            console.log(
-              `✅ DocuPipe extraction complete. Validation: ${validationStatus}${
-                docupipeStandardizationId ? " (using schema)" : ""
-              }`
-            );
-          } catch (error: any) {
-            console.error(
-              "❌ DocuPipe extraction failed, using fallback:",
-              error.message
-            );
-            // Continue with basic extraction
-            validationStatus = "not_validated";
+          // Set validation status based on confidence
+          if (apsResult.docConfidence > 0.7) {
+            validationStatus = "passed";
+          } else if (apsResult.docConfidence > 0.4) {
+            validationStatus = "needs_review";
+          } else {
+            validationStatus = "failed";
           }
-        } else {
+
+          // Check for required signatures (would need signature detection)
+          hasRequiredSignatures = false; // TODO: Implement signature detection
+
+          // Check if price was extracted
+          priceMatchesExtracted =
+            !!apsResult.price_and_deposit?.purchase_price?.numeric;
+
           console.log(
-            "⚠️  DocuPipe not configured, using basic extraction only"
+            `✅ APS parser extraction complete. Strategy: ${
+              apsResult.strategyUsed
+            }, Confidence: ${apsResult.docConfidence.toFixed(2)}`
           );
+        } catch (error: any) {
+          console.error("❌ APS parser failed, using fallback:", error.message);
+          // Fallback to basic extraction
+          extractedData = this.extractOfferData(textContent);
           validationStatus = "not_validated";
         }
       }
@@ -221,9 +195,6 @@ export class DocumentsService {
           validationErrors,
           hasRequiredSignatures,
           priceMatchesExtracted,
-          docupipeJobId,
-          docupipeDocumentId,
-          docupipeStandardizationId,
           formFieldsExtracted: formFieldsExtracted
             ? JSON.parse(JSON.stringify(formFieldsExtracted))
             : undefined,
@@ -535,86 +506,130 @@ export class DocumentsService {
   }
 
   /**
-   * Validate OREA Form based on DocuPipe extracted data
-   * Checks for required signatures, purchase price, and other critical fields
+   * Convert APS parser result (Gemini schema) to legacy ExtractedOfferData format
+   * for backward compatibility with existing database schema
    */
-  validateOREAForm(
-    docupipeData: DocuPipeOREAForm100Response
-  ): ValidationResult {
-    const errors: ValidationError[] = [];
+  private convertApsResultToLegacyFormat(
+    apsResult: ApsParseResult
+  ): ExtractedOfferData {
+    const data: ExtractedOfferData = {};
 
-    // 1. Check for buyer signature
-    const buyerSignatures = docupipeData.signatures?.buyer || [];
-    const hasBuyerSignature =
-      buyerSignatures.length > 0 &&
-      !!buyerSignatures[0]?.name &&
-      buyerSignatures[0].name.trim() !== "";
-
-    if (!hasBuyerSignature) {
-      errors.push({
-        field: "signatures.buyer",
-        message: "Buyer signature is required",
-      });
+    // Parties
+    if (apsResult.buyer_full_name) {
+      data.buyerName = apsResult.buyer_full_name;
+      data.buyers = [apsResult.buyer_full_name];
     }
 
-    // 2. Check for purchase price
-    const purchasePrice = docupipeData.financialDetails?.purchasePrice?.amount;
-    if (!purchasePrice || purchasePrice <= 0) {
-      errors.push({
-        field: "financialDetails.purchasePrice",
-        message: "Purchase price must be filled in and greater than zero",
-      });
+    if (apsResult.seller_full_name) {
+      data.sellers = [apsResult.seller_full_name];
     }
 
-    // 3. Check for deposit
-    const deposit = docupipeData.financialDetails?.deposit?.amount;
-    if (deposit === undefined || deposit === null) {
-      errors.push({
-        field: "financialDetails.deposit",
-        message: "Deposit amount must be specified",
-      });
+    // Property
+    data.propertyAddress = apsResult.property?.property_address;
+
+    // Financials
+    if (apsResult.price_and_deposit?.purchase_price?.numeric) {
+      data.purchasePrice = apsResult.price_and_deposit.purchase_price.numeric;
+      data.price = apsResult.price_and_deposit.purchase_price.numeric; // Legacy field
     }
 
-    // 4. Check for closing date
-    const closingDate = docupipeData.terms?.completion?.date;
-    if (
-      !closingDate ||
-      !closingDate.day ||
-      !closingDate.month ||
-      !closingDate.year
-    ) {
-      errors.push({
-        field: "terms.completion.date",
-        message: "Closing date must be specified",
-      });
+    if (apsResult.price_and_deposit?.deposit?.numeric) {
+      data.deposit = apsResult.price_and_deposit.deposit.numeric;
     }
 
-    // 5. Check for buyer name
-    const buyerName = docupipeData.parties?.buyer;
-    if (!buyerName || buyerName.trim() === "") {
-      errors.push({
-        field: "parties.buyer",
-        message: "Buyer name must be specified",
-      });
+    if (apsResult.price_and_deposit?.deposit?.timing) {
+      data.depositDue = apsResult.price_and_deposit.deposit.timing;
     }
 
-    // Determine validation status
-    const validationStatus = errors.length === 0 ? "passed" : "failed";
-
-    if (validationStatus === "failed") {
-      console.log(
-        `❌ OREA Form validation failed with ${errors.length} error(s):`
-      );
-      errors.forEach((err) => {
-        console.log(`   - ${err.field}: ${err.message}`);
-      });
-    } else {
-      console.log("✅ OREA Form validation passed");
+    // Dates - format from day/month/year to ISO string
+    if (apsResult.completion) {
+      data.closingDate = this.formatDateFromParts(apsResult.completion);
     }
 
-    return {
-      validationStatus,
-      errors,
-    };
+    if (apsResult.irrevocability) {
+      data.irrevocableDate = this.formatDateFromParts(apsResult.irrevocability);
+      data.expiryDate = data.irrevocableDate; // Legacy field
+    }
+
+    // Inclusions/Exclusions
+    if (apsResult.inclusions_exclusions?.chattels_included) {
+      data.inclusions =
+        apsResult.inclusions_exclusions.chattels_included.join(", ");
+    }
+
+    if (apsResult.inclusions_exclusions?.fixtures_excluded) {
+      data.exclusions =
+        apsResult.inclusions_exclusions.fixtures_excluded.join(", ");
+    }
+
+    // Buyer lawyer info
+    if (apsResult.acknowledgment?.buyer?.lawyer) {
+      data.buyerLawyer = apsResult.acknowledgment.buyer.lawyer.name;
+      data.buyerLawyerEmail = apsResult.acknowledgment.buyer.lawyer.email;
+      data.buyerLawyerAddress = apsResult.acknowledgment.buyer.lawyer.address;
+    }
+
+    // Buyer contact
+    if (apsResult.notices?.buyer_email) {
+      data.buyerEmail = apsResult.notices.buyer_email;
+    }
+
+    // Signatures - would need to check if signature fields are present
+    data.buyerSignature1Detected = false; // TODO: Add signature detection
+    data.buyerSignature2Detected = false;
+
+    return data;
+  }
+
+  /**
+   * Format date from day/month/year parts to ISO string
+   */
+  private formatDateFromParts(dateParts: {
+    day?: string;
+    month?: string;
+    year?: string;
+  }): string | undefined {
+    if (!dateParts.day || !dateParts.month || !dateParts.year) {
+      return undefined;
+    }
+
+    try {
+      // Convert month name to number
+      const monthNames = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+      ];
+
+      let monthNum: string;
+      const monthLower = dateParts.month.toLowerCase();
+      const monthIndex = monthNames.findIndex((m) => monthLower.includes(m));
+
+      if (monthIndex >= 0) {
+        monthNum = String(monthIndex + 1).padStart(2, "0");
+      } else {
+        // Try to parse as number
+        const parsed = parseInt(dateParts.month, 10);
+        monthNum = isNaN(parsed) ? "01" : String(parsed).padStart(2, "0");
+      }
+
+      const day = dateParts.day.replace(/\D/g, "").padStart(2, "0");
+      const year =
+        dateParts.year.length === 2 ? "20" + dateParts.year : dateParts.year;
+
+      return `${year}-${monthNum}-${day}T12:00:00Z`;
+    } catch (error) {
+      console.warn("⚠️  Failed to format date:", dateParts);
+      return undefined;
+    }
   }
 }

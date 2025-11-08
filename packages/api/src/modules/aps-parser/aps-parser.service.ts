@@ -168,12 +168,17 @@ ${schemaJson}
 CRITICAL INSTRUCTIONS:
 1. Focus on BUYER-related fields - these are the most important
 2. Extract numbers EXACTLY as written (e.g., if it says "675,000" extract 675000)
-3. For dates, extract day/month/year separately as strings
+3. For dates, extract day/month/year/time separately as clean strings:
+   - Day: Just the number without "st", "nd", "rd", "th" (e.g., "11" not "11th")
+   - Month: Full month name (e.g., "November")
+   - Year: 4-digit year (e.g., "2025")
+   - Time: 24-hour format or 12-hour with AM/PM (e.g., "12:00" or "5:00 PM")
 4. If a field is not present, unclear, or empty, use null
 5. For arrays (chattels, fixtures, rentals), extract each item separately
 6. For HST field, return either "included" or "excluded" based on which checkbox is marked
 7. Return ONLY the JSON object, no markdown formatting, no explanations
 8. Ensure all numeric fields are actual numbers, not strings
+9. Remove extra spaces and normalize text formatting
 
 Return the JSON now:`;
 

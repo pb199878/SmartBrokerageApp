@@ -16,7 +16,7 @@ import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { threadsApi, messagesApi, offersApi } from "../services/api";
 import type { RootStackParamList } from "../navigation/AppNavigator";
-import type { Message } from "@smart-brokerage/shared";
+import type { Message, ApsParseResult } from "@smart-brokerage/shared";
 import {
   MessageDirection,
   MessageStatus,
@@ -27,33 +27,85 @@ import OfferCard from "../components/OfferCard";
 type ChatRouteProp = RouteProp<RootStackParamList, "Chat">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Helper function to safely parse dates
+function safeParseDate(dateValue: any, fallback: Date = new Date()): Date {
+  if (!dateValue) return fallback;
+  const parsed = new Date(dateValue);
+  return isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
 // Helper function to extract buyer details from offer's document analysis
+// Prioritizes comprehensive formFieldsExtracted data, falls back to legacy extractedData
 function extractBuyerDetailsFromOffer(offer: any) {
   // Look for document analysis in the offer's messages
-  const documentAnalysis = offer?.messages
+  const attachment = offer?.messages
     ?.flatMap((msg: any) => msg.attachments || [])
-    ?.find((att: any) => att.documentAnalysis?.extractedData)?.documentAnalysis;
+    ?.find(
+      (att: any) =>
+        att.documentAnalysis?.formFieldsExtracted ||
+        att.documentAnalysis?.extractedData
+    );
 
-  if (!documentAnalysis?.extractedData) {
+  const documentAnalysis = attachment?.documentAnalysis;
+
+  if (!documentAnalysis) {
     return {
       buyerName: undefined,
       buyerLawyer: undefined,
+      buyerLawyerEmail: undefined,
+      buyerLawyerAddress: undefined,
       inclusions: undefined,
       exclusions: undefined,
       depositDue: undefined,
       possessionDate: undefined,
+      rentalItems: undefined,
     };
   }
 
-  const data = documentAnalysis.extractedData;
+  // Try comprehensive formFieldsExtracted first (ApsParseResult from Gemini/AcroForm)
+  if (documentAnalysis.formFieldsExtracted) {
+    const apsData = documentAnalysis.formFieldsExtracted as ApsParseResult;
+
+    return {
+      buyerName: apsData.buyer_full_name,
+      buyerLawyer: apsData.acknowledgment?.buyer?.lawyer?.name,
+      buyerLawyerEmail: apsData.acknowledgment?.buyer?.lawyer?.email,
+      buyerLawyerAddress: apsData.acknowledgment?.buyer?.lawyer?.address,
+      inclusions: apsData.inclusions_exclusions?.chattels_included?.join(", "),
+      exclusions: apsData.inclusions_exclusions?.fixtures_excluded?.join(", "),
+      depositDue: apsData.price_and_deposit?.deposit?.timing,
+      possessionDate: undefined, // Not in current ApsParseResult schema
+      rentalItems: apsData.inclusions_exclusions?.rental_items?.join(", "),
+    };
+  }
+
+  // Fallback to legacy extractedData
+  if (documentAnalysis.extractedData) {
+    const data = documentAnalysis.extractedData;
+
+    return {
+      buyerName: data.buyerName,
+      buyerLawyer: data.buyerLawyer,
+      buyerLawyerEmail: data.buyerLawyerEmail,
+      buyerLawyerAddress: data.buyerLawyerAddress,
+      inclusions: data.inclusions,
+      exclusions: data.exclusions,
+      depositDue: data.depositDue,
+      possessionDate: data.possessionDate,
+      rentalItems: undefined, // Not in legacy format
+    };
+  }
 
   return {
-    buyerName: data.buyerName,
-    buyerLawyer: data.buyerLawyer,
-    inclusions: data.inclusions,
-    exclusions: data.exclusions,
-    depositDue: data.depositDue,
-    possessionDate: data.possessionDate,
+    buyerName: undefined,
+    buyerLawyer: undefined,
+    buyerLawyerEmail: undefined,
+    buyerLawyerAddress: undefined,
+    inclusions: undefined,
+    exclusions: undefined,
+    depositDue: undefined,
+    possessionDate: undefined,
+    rentalItems: undefined,
   };
 }
 
@@ -317,14 +369,10 @@ export default function ChatScreen() {
                       depositDue:
                         extractedDetails.depositDue ||
                         "Within 24 hours of acceptance",
-                      closingDate: offer.closingDate
-                        ? new Date(offer.closingDate)
-                        : new Date(),
-                      possessionDate: extractedDetails.possessionDate
-                        ? new Date(extractedDetails.possessionDate)
-                        : offer.closingDate
-                        ? new Date(offer.closingDate)
-                        : new Date(),
+                      closingDate: safeParseDate(offer.closingDate),
+                      possessionDate: safeParseDate(
+                        extractedDetails.possessionDate || offer.closingDate
+                      ),
                       conditions: offer.conditions || "As per APS document",
                       inclusions:
                         extractedDetails.inclusions || "As per APS document",

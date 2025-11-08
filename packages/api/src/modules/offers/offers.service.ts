@@ -9,6 +9,7 @@ import {
   DeclineOfferDto,
   CounterOfferDto,
   ApsIntake,
+  ApsParseResult,
 } from "@smart-brokerage/shared";
 
 @Injectable()
@@ -123,13 +124,6 @@ export class OffersService {
     }
 
     // Extract offer details from document analysis
-    let price: number | undefined;
-    let deposit: number | undefined;
-    let closingDate: Date | undefined;
-    let expiryDate: Date | undefined;
-    let conditions: string | undefined;
-    let originalDocumentS3Key: string | undefined;
-
     // Find the primary offer document (highest relevance score)
     const offerAttachment = message.attachments
       .filter((att) => att.documentAnalysis?.oreaFormDetected)
@@ -159,21 +153,14 @@ export class OffersService {
       );
     }
 
-    if (offerAttachment?.documentAnalysis?.extractedData) {
-      const data = offerAttachment.documentAnalysis.extractedData as any;
-      price = data.price;
-      deposit = data.deposit;
-      if (data.closingDate) {
-        closingDate = new Date(data.closingDate);
-      }
-      if (data.expiryDate) {
-        expiryDate = new Date(data.expiryDate);
-      }
-      if (data.conditions && Array.isArray(data.conditions)) {
-        conditions = data.conditions.join(", ");
-      }
-      originalDocumentS3Key = offerAttachment.s3Key;
-    }
+    // Extract offer data using new helper method (supports both comprehensive and legacy formats)
+    const extractedData = this.extractOfferDataFromAttachment(offerAttachment);
+    let price = extractedData.price;
+    let deposit = extractedData.deposit;
+    let closingDate = extractedData.closingDate;
+    let expiryDate = extractedData.expiryDate;
+    let conditions = extractedData.conditions;
+    let originalDocumentS3Key = extractedData.s3Key;
 
     // Set default expiry date if none was extracted (24 hours from now)
     // This handles empty OREA forms or forms without clear expiry dates
@@ -275,19 +262,21 @@ export class OffersService {
           (a.documentAnalysis?.relevanceScore || 0)
       )[0];
 
-    if (offerAttachment?.documentAnalysis?.extractedData) {
-      const data = offerAttachment.documentAnalysis.extractedData as any;
+    // Extract offer data using new helper method (supports both comprehensive and legacy formats)
+    const extractedData = this.extractOfferDataFromAttachment(offerAttachment);
 
-      if (data.price !== undefined) updateData.price = data.price;
-      if (data.deposit !== undefined) updateData.deposit = data.deposit;
-      if (data.closingDate) updateData.closingDate = new Date(data.closingDate);
-      if (data.conditions && Array.isArray(data.conditions)) {
-        updateData.conditions = data.conditions.join(", ");
-      }
-
-      // Update the document reference
-      updateData.originalDocumentS3Key = offerAttachment.s3Key;
-    }
+    if (extractedData.price !== undefined)
+      updateData.price = extractedData.price;
+    if (extractedData.deposit !== undefined)
+      updateData.deposit = extractedData.deposit;
+    if (extractedData.closingDate)
+      updateData.closingDate = extractedData.closingDate;
+    if (extractedData.expiryDate)
+      updateData.expiryDate = extractedData.expiryDate;
+    if (extractedData.conditions)
+      updateData.conditions = extractedData.conditions;
+    if (extractedData.s3Key)
+      updateData.originalDocumentS3Key = extractedData.s3Key;
 
     // Update offer with new details
     const updatedOffer = await this.prisma.offer.update({
@@ -365,6 +354,81 @@ export class OffersService {
    * - Prefills seller's intake data
    * - Creates Dropbox Sign embedded signature request
    */
+  /**
+   * Merge comprehensive extracted data from formFieldsExtracted with seller's intake
+   * This creates a complete ApsIntake with all buyer data + seller's input
+   */
+  private mergeExtractedDataWithIntake(
+    offer: any,
+    sellerIntake: ApsIntake
+  ): ApsIntake {
+    // Extract comprehensive data using the same method as mobile
+    const extractedData = this.extractOfferDataFromAttachment(
+      offer.messages
+        ?.flatMap((msg: any) => msg.attachments || [])
+        ?.find(
+          (att: any) =>
+            att.documentAnalysis?.formFieldsExtracted ||
+            att.documentAnalysis?.extractedData
+        )
+    );
+
+    // Merge: Start with extracted data, overlay seller's input
+    const merged: ApsIntake = {
+      // Property info (from extracted data, seller doesn't modify)
+      propertyAddress: extractedData.s3Key
+        ? sellerIntake.propertyAddress
+        : undefined,
+      legalDescription: sellerIntake.legalDescription,
+
+      // Financial (from buyer's offer, read-only)
+      purchasePrice: extractedData.price,
+      depositAmount: extractedData.deposit,
+      depositDueDate: extractedData.depositDue,
+
+      // Dates (from buyer's offer, read-only)
+      completionDate: extractedData.closingDate?.toISOString(),
+      possessionDate: sellerIntake.possessionDate,
+
+      // Seller information (seller's input takes precedence)
+      sellerLegalName: sellerIntake.sellerLegalName,
+      sellerAddress: sellerIntake.sellerAddress,
+      sellerPhone: sellerIntake.sellerPhone,
+      sellerEmail: sellerIntake.sellerEmail,
+
+      // Lawyer information (seller's input takes precedence)
+      lawyerName: sellerIntake.lawyerName,
+      lawyerFirm: sellerIntake.lawyerFirm,
+      lawyerAddress: sellerIntake.lawyerAddress,
+      lawyerPhone: sellerIntake.lawyerPhone,
+      lawyerEmail: sellerIntake.lawyerEmail,
+
+      // Inclusions (from buyer) + Exclusions (seller adds/modifies)
+      inclusions: extractedData.conditions || sellerIntake.inclusions,
+      exclusions: sellerIntake.exclusions, // Seller's input
+      fixtures: sellerIntake.fixtures,
+      chattels: sellerIntake.chattels,
+
+      // Rental items (seller fills this, may be pre-populated from extraction)
+      rentalItems: sellerIntake.rentalItems,
+
+      // Additional terms
+      additionalTerms: sellerIntake.additionalTerms,
+
+      // Seller notes
+      sellerNotes: sellerIntake.sellerNotes,
+    };
+
+    console.log("📋 Merged comprehensive data with seller intake:", {
+      extractedPrice: extractedData.price,
+      extractedInclusions: extractedData.conditions?.substring(0, 50),
+      sellerExclusions: sellerIntake.exclusions?.substring(0, 50),
+      sellerRentalItems: sellerIntake.rentalItems?.substring(0, 50),
+    });
+
+    return merged;
+  }
+
   async prepareOfferForSigning(
     offerId: string,
     intake: ApsIntake,
@@ -373,6 +437,9 @@ export class OffersService {
     console.log(`📝 Preparing offer ${offerId} for signing with guided intake`);
 
     const offer = await this.getOffer(offerId);
+
+    // Merge comprehensive extracted data with seller's intake
+    const completeIntake = this.mergeExtractedDataWithIntake(offer, intake);
 
     // Validate offer can be accepted
     if (offer.status !== OfferStatus.PENDING_REVIEW) {
@@ -416,10 +483,10 @@ export class OffersService {
       // 3. Flatten buyer's PDF (preserve their filled fields as read-only)
       const flattenedPdf = await this.pdfService.flattenPdf(buyerPdf);
 
-      // 4. Prefill seller's intake data onto the flattened PDF
+      // 4. Prefill complete intake data (buyer + seller) onto the flattened PDF
       const preparedPdf = await this.pdfService.prefillSellerData(
         flattenedPdf,
-        intake,
+        completeIntake,
         oreaVersion
       );
 
@@ -462,7 +529,7 @@ export class OffersService {
         `   Created Dropbox Sign request: ${signatureRequest.signatureRequestId}`
       );
 
-      // 7. Update offer with all the new data
+      // 7. Update offer with all the new data (store complete merged intake)
       await this.prisma.offer.update({
         where: { id: offerId },
         data: {
@@ -472,7 +539,7 @@ export class OffersService {
           signUrl: signatureRequest.signUrl,
           preparedDocumentS3Key: preparedS3Key,
           oreaVersion,
-          intakeData: intake as any,
+          intakeData: completeIntake as any,
           sellerEmail: seller.email,
           sellerName: seller.name,
         },
@@ -999,5 +1066,233 @@ Smart Brokerage Platform`;
     } catch (error: any) {
       console.error(`❌ Failed to update message:`, error.message);
     }
+  }
+
+  /**
+   * Clean date/time string by removing ordinal suffixes (st, nd, rd, th), AM/PM, and extra spaces
+   */
+  private cleanDateTimeString(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+
+    return value
+      .replace(/(\d+)(st|nd|rd|th)/gi, "$1") // Remove ordinal suffixes
+      .replace(/\s*(AM|PM|am|pm|a\.m\.|p\.m\.)\s*/gi, " ") // Remove AM/PM
+      .replace(/\s+/g, " ") // Normalize spaces
+      .trim();
+  }
+
+  /**
+   * Parse date from ApsParseResult date parts (day, month, year)
+   * Handles cleaning of ordinal suffixes and extra text
+   */
+  private parseDateFromApsResult(
+    dateParts:
+      | {
+          day?: string;
+          month?: string;
+          year?: string;
+          time?: string;
+        }
+      | undefined
+  ): Date | undefined {
+    if (!dateParts?.day || !dateParts?.month || !dateParts?.year) {
+      return undefined;
+    }
+
+    try {
+      // Clean the date parts
+      const cleanDay = this.cleanDateTimeString(dateParts.day);
+      const cleanMonth = this.cleanDateTimeString(dateParts.month);
+      const cleanYear = this.cleanDateTimeString(dateParts.year);
+      const cleanTime = dateParts.time
+        ? this.cleanDateTimeString(dateParts.time)
+        : undefined;
+
+      if (!cleanDay || !cleanMonth || !cleanYear) {
+        return undefined;
+      }
+
+      // Convert month name to number
+      const monthNames = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+      ];
+
+      const monthLower = cleanMonth.toLowerCase();
+      const monthIndex = monthNames.findIndex((m) =>
+        monthLower.startsWith(m.substring(0, 3))
+      );
+
+      if (monthIndex === -1) {
+        console.log(`⚠️ Invalid month name: "${cleanMonth}"`);
+        return undefined;
+      }
+
+      // Parse day and year
+      const dayNum = parseInt(cleanDay, 10);
+      const yearNum = parseInt(cleanYear, 10);
+
+      if (isNaN(dayNum) || isNaN(yearNum)) {
+        console.log(
+          `⚠️ Invalid day or year: day="${cleanDay}", year="${cleanYear}"`
+        );
+        return undefined;
+      }
+
+      // Create date (month is 0-indexed in JS Date)
+      const date = new Date(yearNum, monthIndex, dayNum);
+
+      // Parse time if provided (e.g., "12:00", "5:00 PM")
+      if (cleanTime) {
+        const timeMatch = cleanTime.match(/(\d{1,2}):?(\d{2})?/);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1], 10);
+          const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+
+          // Check for PM in original time string (before cleaning removed it)
+          if (dateParts.time?.toLowerCase().includes("pm") && hours < 12) {
+            hours += 12;
+          } else if (
+            dateParts.time?.toLowerCase().includes("am") &&
+            hours === 12
+          ) {
+            hours = 0;
+          }
+
+          date.setHours(hours, minutes, 0, 0);
+        }
+      } else {
+        // Default to noon if no time specified
+        date.setHours(12, 0, 0, 0);
+      }
+
+      // Validate the date
+      if (isNaN(date.getTime())) {
+        console.log(
+          `⚠️ Invalid date created from: ${JSON.stringify(dateParts)}`
+        );
+        return undefined;
+      }
+
+      return date;
+    } catch (error: any) {
+      console.error(
+        `❌ Error parsing date from APS result:`,
+        error.message,
+        dateParts
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Extract offer data from comprehensive formFieldsExtracted (ApsParseResult)
+   * Falls back to legacy extractedData if formFieldsExtracted not available
+   */
+  private extractOfferDataFromAttachment(attachment: any): {
+    price?: number;
+    deposit?: number;
+    depositDue?: string;
+    closingDate?: Date;
+    expiryDate?: Date;
+    conditions?: string;
+    s3Key?: string;
+  } {
+    const result: any = {};
+
+    // Try formFieldsExtracted first (comprehensive Gemini/AcroForm data)
+    if (attachment?.documentAnalysis?.formFieldsExtracted) {
+      const apsData = attachment.documentAnalysis
+        .formFieldsExtracted as ApsParseResult;
+
+      console.log(
+        `📄 Using comprehensive APS data (strategy: ${apsData.strategyUsed})`
+      );
+
+      // Extract price and deposit
+      if (apsData.price_and_deposit?.purchase_price?.numeric) {
+        result.price = apsData.price_and_deposit.purchase_price.numeric;
+      }
+
+      if (apsData.price_and_deposit?.deposit?.numeric) {
+        result.deposit = apsData.price_and_deposit.deposit.numeric;
+      }
+
+      if (apsData.price_and_deposit?.deposit?.timing) {
+        result.depositDue = apsData.price_and_deposit.deposit.timing;
+      }
+
+      // Parse closing date from completion field
+      if (apsData.completion) {
+        result.closingDate = this.parseDateFromApsResult(apsData.completion);
+        if (result.closingDate) {
+          console.log(
+            `📅 Parsed closing date: ${result.closingDate.toISOString()}`
+          );
+        }
+      }
+
+      // Parse expiry date from irrevocability field
+      if (apsData.irrevocability) {
+        result.expiryDate = this.parseDateFromApsResult(apsData.irrevocability);
+        if (result.expiryDate) {
+          console.log(
+            `⏰ Parsed expiry date: ${result.expiryDate.toISOString()}`
+          );
+        }
+      }
+
+      // Note: Conditions are not yet part of the comprehensive ApsParseResult schema
+      // They may be added in a future update to the Gemini extraction schema
+
+      result.s3Key = attachment.s3Key;
+    } else if (attachment?.documentAnalysis?.extractedData) {
+      // Fallback to legacy extractedData format
+      const data = attachment.documentAnalysis.extractedData as any;
+
+      console.log(`📄 Using legacy extracted data format`);
+
+      result.price = data.price;
+      result.deposit = data.deposit;
+      result.depositDue = data.depositDue;
+
+      if (data.closingDate) {
+        const parsedClosingDate = new Date(data.closingDate);
+        if (!isNaN(parsedClosingDate.getTime())) {
+          result.closingDate = parsedClosingDate;
+        } else {
+          console.log(
+            `⚠️ Invalid closingDate extracted: "${data.closingDate}"`
+          );
+        }
+      }
+
+      if (data.expiryDate) {
+        const parsedExpiryDate = new Date(data.expiryDate);
+        if (!isNaN(parsedExpiryDate.getTime())) {
+          result.expiryDate = parsedExpiryDate;
+        } else {
+          console.log(`⚠️ Invalid expiryDate extracted: "${data.expiryDate}"`);
+        }
+      }
+
+      if (data.conditions && Array.isArray(data.conditions)) {
+        result.conditions = data.conditions.join(", ");
+      }
+
+      result.s3Key = attachment.s3Key;
+    }
+
+    return result;
   }
 }

@@ -20,6 +20,13 @@ interface OfferCardProps {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Helper function to safely parse dates
+function safeParseDate(dateValue: any): Date | null {
+  if (!dateValue) return null;
+  const parsed = new Date(dateValue);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export default function OfferCard({
   offer,
   onAccept,
@@ -93,7 +100,8 @@ export default function OfferCard({
     });
   };
 
-  const isExpired = offer.expiryDate && new Date(offer.expiryDate) < new Date();
+  const expiryDate = safeParseDate(offer.expiryDate);
+  const isExpired = expiryDate && expiryDate < new Date();
   const isPending = offer.status === OfferStatus.PENDING_REVIEW;
   const isAwaitingSignature =
     offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;

@@ -18,6 +18,13 @@ import { listingsApi, offersApi } from "../services/api";
 type ApsReviewRouteProp = RouteProp<RootStackParamList, "ApsReview">;
 type NavigationProps = NavigationProp<RootStackParamList>;
 
+// Helper function to safely parse dates
+function safeParseDate(dateValue: any, fallback: Date = new Date()): Date {
+  if (!dateValue) return fallback;
+  const parsed = new Date(dateValue);
+  return isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
 export default function ApsReviewScreen() {
   const route = useRoute<ApsReviewRouteProp>();
   const navigation = useNavigation<NavigationProps>();
@@ -63,18 +70,14 @@ export default function ApsReviewScreen() {
       buyerOfferFromAnalysis?.depositDue ||
       buyerDetails?.depositDue ||
       "Upon Acceptance",
-    closingDate: buyerOfferFromAnalysis?.closingDate
-      ? new Date(buyerOfferFromAnalysis.closingDate)
-      : buyerDetails?.closingDate
-      ? new Date(buyerDetails.closingDate)
-      : new Date(),
-    possessionDate: buyerOfferFromAnalysis?.possessionDate
-      ? new Date(buyerOfferFromAnalysis.possessionDate)
-      : buyerOfferFromAnalysis?.closingDate
-      ? new Date(buyerOfferFromAnalysis.closingDate)
-      : buyerDetails?.possessionDate
-      ? new Date(buyerDetails.possessionDate)
-      : new Date(),
+    closingDate: safeParseDate(
+      buyerOfferFromAnalysis?.closingDate || buyerDetails?.closingDate
+    ),
+    possessionDate: safeParseDate(
+      buyerOfferFromAnalysis?.possessionDate ||
+        buyerOfferFromAnalysis?.closingDate ||
+        buyerDetails?.possessionDate
+    ),
     conditions: Array.isArray(buyerOfferFromAnalysis?.conditions)
       ? buyerOfferFromAnalysis.conditions.join(", ")
       : buyerOfferFromAnalysis?.conditions ||

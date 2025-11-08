@@ -12,6 +12,13 @@ import { OfferStatus } from '@smart-brokerage/shared';
 type OfferActionRouteProp = RouteProp<RootStackParamList, 'OfferAction'>;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+// Helper function to safely parse dates
+function safeParseDate(dateValue: any, fallback: string = 'N/A'): string {
+  if (!dateValue) return fallback;
+  const parsed = new Date(dateValue);
+  return isNaN(parsed.getTime()) ? fallback : parsed.toLocaleDateString();
+}
+
 export default function OfferActionScreen() {
   const route = useRoute<OfferActionRouteProp>();
   const navigation = useNavigation<NavigationProp>();
@@ -123,7 +130,7 @@ export default function OfferActionScreen() {
               <View style={styles.detailRow}>
                 <Text variant="bodyMedium">Closing Date:</Text>
                 <Text variant="bodyMedium">
-                  {new Date(offer.closingDate).toLocaleDateString()}
+                  {safeParseDate(offer.closingDate)}
                 </Text>
               </View>
             )}

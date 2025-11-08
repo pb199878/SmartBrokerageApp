@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Alert } from "react-native";
 import {
   Text,
@@ -7,12 +7,19 @@ import {
   Card,
   HelperText,
   Divider,
+  ActivityIndicator,
 } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp, NavigationProp } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { usePrepareOfferForSigning } from "../hooks/agreements";
 import { getGuidanceBySections, ApsIntake } from "@smart-brokerage/shared";
+import { useQuery } from "@tanstack/react-query";
+import { offersApi } from "../services/api";
+import {
+  extractComprehensiveOfferData,
+  convertOfferDataToApsIntake,
+} from "../utils/offerExtraction";
 
 type ApsGuidedFormRouteProp = RouteProp<RootStackParamList, "ApsGuidedForm">;
 type NavigationProps = NavigationProp<RootStackParamList>;
@@ -25,7 +32,13 @@ export default function ApsGuidedFormScreen() {
   const prepareMutation = usePrepareOfferForSigning();
   const guidanceSections = getGuidanceBySections();
 
-  // Form state - Only seller-specific fields
+  // Fetch offer data to extract comprehensive information
+  const { data: offer, isLoading: isLoadingOffer } = useQuery({
+    queryKey: ["offer", offerId],
+    queryFn: () => offersApi.get(offerId),
+  });
+
+  // Form state - Prefilled with buyer data and seller defaults
   const [formData, setFormData] = useState<ApsIntake>({
     sellerLegalName: sellerName || "",
     sellerAddress: "",
@@ -42,6 +55,26 @@ export default function ApsGuidedFormScreen() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Prefill form when offer data is loaded
+  useEffect(() => {
+    if (offer) {
+      const comprehensiveData = extractComprehensiveOfferData(offer);
+      const prefilledIntake = convertOfferDataToApsIntake(comprehensiveData, {
+        sellerLegalName: sellerName || "",
+        sellerEmail: sellerEmail || "",
+      });
+
+      setFormData(prefilledIntake);
+
+      console.log("📄 Prefilled form with comprehensive offer data:", {
+        buyerName: comprehensiveData.buyerName,
+        purchasePrice: comprehensiveData.purchasePrice,
+        inclusions: comprehensiveData.inclusions?.substring(0, 50),
+        hasRentalItems: !!comprehensiveData.rentalItems,
+      });
+    }
+  }, [offer, sellerName, sellerEmail]);
 
   const updateField = (field: keyof ApsIntake, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -168,6 +201,16 @@ export default function ApsGuidedFormScreen() {
     );
   };
 
+  // Show loading state while fetching offer data
+  if (isLoadingOffer) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 16 }}>Loading offer details...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -175,9 +218,9 @@ export default function ApsGuidedFormScreen() {
           <Card.Content>
             <Text variant="titleLarge">Review Your Information</Text>
             <Text variant="bodyMedium" style={styles.headerSubtext}>
-              Your contact and lawyer details are prefilled from your listing.
-              Review them and add any items you're excluding or rental items,
-              then proceed to sign.
+              Buyer's offer details are prefilled below. Review all information,
+              add any items you're excluding or rental items, then proceed to
+              sign.
             </Text>
           </Card.Content>
         </Card>
@@ -206,6 +249,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
+  },
+  centerContent: {
+    justifyContent: "center",
+    alignItems: "center",
   },
   scrollView: {
     flex: 1,

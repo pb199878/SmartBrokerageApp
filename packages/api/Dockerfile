@@ -2,8 +2,11 @@
 # NOTE: Build context should be the monorepo root
 FROM node:20-alpine AS builder
 
-# Install GraphicsMagick for PDF to image conversion
-RUN apk add --no-cache graphicsmagick
+# Install system dependencies for Prisma and GraphicsMagick
+RUN apk add --no-cache \
+    graphicsmagick \
+    openssl \
+    openssl-dev
 
 # Set working directory to monorepo root
 WORKDIR /app
@@ -37,8 +40,11 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine
 
-# Install GraphicsMagick in production image
-RUN apk add --no-cache graphicsmagick
+# Install runtime dependencies: GraphicsMagick and OpenSSL for Prisma
+RUN apk add --no-cache \
+    graphicsmagick \
+    openssl \
+    libc6-compat
 
 # Verify GraphicsMagick installation
 RUN gm version

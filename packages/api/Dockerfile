@@ -5,6 +5,7 @@ FROM node:20-alpine AS builder
 # Install system dependencies for Prisma and GraphicsMagick
 RUN apk add --no-cache \
     graphicsmagick \
+    ghostscript \
     openssl \
     openssl-dev
 
@@ -40,14 +41,15 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine
 
-# Install runtime dependencies: GraphicsMagick and OpenSSL for Prisma
+# Install runtime dependencies: GraphicsMagick, Ghostscript, and OpenSSL for Prisma
 RUN apk add --no-cache \
     graphicsmagick \
+    ghostscript \
     openssl \
     libc6-compat
 
-# Verify GraphicsMagick installation
-RUN gm version
+# Verify GraphicsMagick and Ghostscript installation
+RUN gm version && gs --version
 
 WORKDIR /app/packages/api
 

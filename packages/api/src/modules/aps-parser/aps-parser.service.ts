@@ -2,13 +2,27 @@ import { Injectable } from "@nestjs/common";
 import { ApsParseResult, GeminiApsSchema } from "@smart-brokerage/shared";
 import { PDFDocument } from "pdf-lib";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { PdfToImageService } from "./pdf-to-image.service";
+import {
+  SignatureDetectorService,
+  VisualValidationResult,
+} from "./signature-detector.service";
+
+export interface HybridValidationResult extends ApsParseResult {
+  visualValidation?: VisualValidationResult;
+  validationStrategy: "text-only" | "text-with-visual" | "visual-only";
+  crossValidationScore: number; // 0-1 score indicating agreement between text and visual
+}
 
 @Injectable()
 export class ApsParserService {
   private genAI: GoogleGenerativeAI | null = null;
   private geminiEnabled: boolean = false;
 
-  constructor() {
+  constructor(
+    private pdfToImageService: PdfToImageService,
+    private signatureDetectorService: SignatureDetectorService
+  ) {
     // Initialize Gemini AI if API key is available
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (apiKey) {
@@ -23,13 +37,14 @@ export class ApsParserService {
   }
 
   /**
-   * Parse an OREA Form 100 PDF using 2-tier strategy
+   * Parse an OREA Form 100 PDF using 3-tier hybrid strategy
    * Tier 1: AcroForm extraction (fillable PDFs)
-   * Tier 2: Gemini Vision (flattened/scanned PDFs)
+   * Tier 2: Gemini PDF extraction (flattened/scanned PDFs)
+   * Tier 3: Image-based visual validation (signatures, checkboxes, cross-validation)
    */
   async parseAps(pdfBuffer: Buffer): Promise<ApsParseResult> {
     try {
-      console.log("📄 Starting APS parsing...");
+      console.log("📄 Starting APS parsing with hybrid validation...");
 
       // Try Tier 1: AcroForm extraction
       try {
@@ -46,9 +61,9 @@ export class ApsParserService {
         console.log("⏭️  AcroForm tier failed:", error.message);
       }
 
-      // Tier 2: Gemini Vision
+      // Tier 2: Gemini PDF extraction
       if (this.geminiEnabled) {
-        console.log("🤖 Using Gemini Vision for extraction...");
+        console.log("🤖 Using Gemini for PDF extraction...");
         try {
           const geminiResult = await this.tryGeminiExtraction(pdfBuffer);
           console.log(
@@ -75,6 +90,126 @@ export class ApsParserService {
         errors: [error.message],
       };
     }
+  }
+
+  /**
+   * Parse with comprehensive hybrid validation (text + image analysis)
+   * This method combines text extraction with visual validation for maximum accuracy
+   */
+  async parseApsWithHybridValidation(
+    pdfBuffer: Buffer
+  ): Promise<HybridValidationResult> {
+    console.log("🔬 Starting HYBRID validation (text + images)...");
+
+    // Step 1: Standard text-based extraction
+    const textResult = await this.parseAps(pdfBuffer);
+
+    // Step 2: Convert PDF to images for visual analysis
+    let visualValidation: VisualValidationResult | undefined;
+    let validationStrategy: "text-only" | "text-with-visual" | "visual-only" =
+      "text-only";
+    let crossValidationScore = textResult.docConfidence;
+
+    if (this.geminiEnabled) {
+      try {
+        console.log("🖼️  Attempting visual validation with images...");
+        const images = await this.pdfToImageService.convertPdfToImages(
+          pdfBuffer,
+          {
+            maxPages: 15, // OREA Form 100 is typically 11-13 pages
+            quality: 90, // Higher quality for better initials detection
+          }
+        );
+
+        if (images.length > 0) {
+          console.log("🔍 Performing visual validation...");
+          visualValidation =
+            await this.signatureDetectorService.performVisualValidation(
+              images,
+              textResult // Pass text result for cross-validation
+            );
+
+          validationStrategy = "text-with-visual";
+
+          // Calculate cross-validation score
+          crossValidationScore = this.calculateCrossValidationScore(
+            textResult,
+            visualValidation
+          );
+
+          console.log(
+            `✅ Hybrid validation complete. Cross-validation score: ${(crossValidationScore * 100).toFixed(1)}%`
+          );
+        }
+      } catch (imageError: any) {
+        // Graceful fallback to text-only validation
+        console.log(
+          "⚠️  Image-based validation not available (GraphicsMagick not installed)"
+        );
+        console.log("   Using text-only validation. To enable image validation:");
+        console.log(
+          "   - Local: brew install graphicsmagick"
+        );
+        console.log(
+          "   - Railway: Add graphicsmagick buildpack (see HYBRID_VALIDATION_SETUP.md)"
+        );
+        validationStrategy = "text-only";
+        // Use text confidence as cross-validation score
+        crossValidationScore = textResult.docConfidence;
+      }
+    }
+
+    return {
+      ...textResult,
+      visualValidation,
+      validationStrategy,
+      crossValidationScore,
+    };
+  }
+
+  /**
+   * Calculate cross-validation score between text and visual analysis
+   */
+  private calculateCrossValidationScore(
+    textResult: ApsParseResult,
+    visualValidation: VisualValidationResult
+  ): number {
+    let score = 0;
+    let totalChecks = 0;
+
+    // 1. Check if signatures are present (critical validation)
+    totalChecks++;
+    if (visualValidation.signatureDetection.hasSignatures) {
+      score += 0.4; // Signatures are 40% of validation score
+    }
+
+    // 2. Check visual quality
+    totalChecks++;
+    if (visualValidation.visualQuality.isReadable) {
+      score += 0.2; // Quality is 20%
+    }
+
+    // 3. Check cross-validation agreement
+    totalChecks++;
+    if (visualValidation.crossValidation.textMatchesVisual) {
+      score += 0.3; // Text/visual agreement is 30%
+    } else {
+      // Partial credit based on number of discrepancies
+      const discrepancyCount =
+        visualValidation.crossValidation.discrepancies.length;
+      if (discrepancyCount === 0) {
+        score += 0.3;
+      } else if (discrepancyCount <= 2) {
+        score += 0.15; // Minor discrepancies
+      }
+      // No credit for major discrepancies
+    }
+
+    // 4. Incorporate text extraction confidence
+    totalChecks++;
+    score += textResult.docConfidence * 0.1; // Text confidence is 10%
+
+    return Math.min(score, 1.0);
   }
 
   /**

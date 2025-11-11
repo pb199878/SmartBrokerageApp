@@ -128,42 +128,61 @@ export class DocumentsService {
       let priceMatchesExtracted: boolean | undefined;
 
       if (oreaDetection.isOREAForm) {
-        // Use APS parser for comprehensive extraction
+        // Use APS parser with HYBRID validation (text + images)
         try {
-          console.log("🔍 Using APS parser for comprehensive extraction...");
+          console.log(
+            "🔍 Using APS parser with hybrid validation (text + images)..."
+          );
 
-          const apsResult: ApsParseResult =
-            await this.apsParserService.parseAps(pdfBuffer);
+          const hybridResult =
+            await this.apsParserService.parseApsWithHybridValidation(pdfBuffer);
 
           // Convert APS result to legacy ExtractedOfferData format
-          extractedData = this.convertApsResultToLegacyFormat(apsResult);
+          extractedData = this.convertApsResultToLegacyFormat(hybridResult);
 
           // Store the full APS result in formFieldsExtracted
-          formFieldsExtracted = apsResult;
+          formFieldsExtracted = hybridResult;
 
-          // Set validation status based on confidence
-          if (apsResult.docConfidence > 0.7) {
+          // Set validation status based on HYBRID confidence score
+          const finalConfidence = hybridResult.crossValidationScore;
+          if (finalConfidence > 0.75) {
             validationStatus = "passed";
-          } else if (apsResult.docConfidence > 0.4) {
+          } else if (finalConfidence > 0.5) {
             validationStatus = "needs_review";
           } else {
             validationStatus = "failed";
           }
 
-          // Check for required signatures (would need signature detection)
-          hasRequiredSignatures = false; // TODO: Implement signature detection
+          // Check for required signatures from visual validation
+          hasRequiredSignatures =
+            hybridResult.visualValidation?.signatureDetection?.hasSignatures ||
+            false;
 
           // Check if price was extracted
           priceMatchesExtracted =
-            !!apsResult.price_and_deposit?.purchase_price?.numeric;
+            !!hybridResult.price_and_deposit?.purchase_price?.numeric;
 
           console.log(
-            `✅ APS parser extraction complete. Strategy: ${
-              apsResult.strategyUsed
-            }, Confidence: ${apsResult.docConfidence.toFixed(2)}`
+            `✅ Hybrid validation complete. Strategy: ${
+              hybridResult.validationStrategy
+            }, Cross-validation: ${(finalConfidence * 100).toFixed(1)}%`
           );
+
+          // Log signature detection results
+          if (hybridResult.visualValidation) {
+            const sigCount =
+              hybridResult.visualValidation.signatureDetection.signatureCount;
+            console.log(
+              `   📝 Signatures detected: ${sigCount} (${
+                hasRequiredSignatures ? "VALID" : "MISSING"
+              })`
+            );
+          }
         } catch (error: any) {
-          console.error("❌ APS parser failed, using fallback:", error.message);
+          console.error(
+            "❌ Hybrid validation failed, using fallback:",
+            error.message
+          );
           // Fallback to basic extraction
           extractedData = this.extractOfferData(textContent);
           validationStatus = "not_validated";

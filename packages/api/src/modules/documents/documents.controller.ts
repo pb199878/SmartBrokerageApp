@@ -58,6 +58,71 @@ export class DocumentsController {
   }
 
   /**
+   * Test endpoint to check buyer initials only
+   * POST /documents/test-initials
+   * Upload a PDF and get detailed initials check for each page
+   */
+  @Post('test-initials')
+  @UseInterceptors(FileInterceptor('pdf'))
+  async testInitials(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No PDF file uploaded');
+    }
+
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('File must be a PDF');
+    }
+
+    console.log(
+      `📄 Testing initials check with: ${file.originalname} (${(file.size / 1024).toFixed(2)} KB)`
+    );
+
+    try {
+      // Import services we need
+      const PdfToImageService = require('../aps-parser/pdf-to-image.service')
+        .PdfToImageService;
+      const SignatureDetectorService = require('../aps-parser/signature-detector.service')
+        .SignatureDetectorService;
+
+      const pdfToImageService = new PdfToImageService();
+      const signatureDetectorService = new SignatureDetectorService();
+
+      // Initialize services
+      pdfToImageService.onModuleInit();
+
+      // Convert PDF to images
+      const images = await pdfToImageService.convertPdfToImages(file.buffer, {
+        maxPages: 15,
+        quality: 85,
+      });
+
+      console.log(`📄 Converted ${images.length} pages to images`);
+
+      // Check buyer initials
+      const result = await signatureDetectorService.checkBuyerInitials(images);
+
+      return {
+        success: true,
+        filename: file.originalname,
+        result,
+        details: result.pageResults.map((pr) => ({
+          page: pr.pageNumber,
+          found: pr.hasInitials ? '✅' : '❌',
+          confidence: `${(pr.confidence * 100).toFixed(0)}%`,
+          location: pr.location,
+        })),
+      };
+    } catch (error) {
+      console.error('❌ Initials check failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        stack: error.stack,
+      };
+    }
+  }
+
+  /**
    * Test endpoint for full attachment analysis
    * POST /documents/test-analyze-attachment/:attachmentId
    * Analyzes an existing attachment by ID (must be in database)

@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
 import { ApsParserService } from "../aps-parser/aps-parser.service";
+import { PdfToImageService } from "../aps-parser/pdf-to-image.service";
+import { SignatureDetectorService } from "../aps-parser/signature-detector.service";
 import { ApsParseResult } from "@smart-brokerage/shared";
 import axios from "axios";
 import { PDFParse } from "pdf-parse";
@@ -78,7 +80,9 @@ export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private supabaseService: SupabaseService,
-    private apsParserService: ApsParserService
+    private apsParserService: ApsParserService,
+    private pdfToImageService: PdfToImageService,
+    private signatureDetectorService: SignatureDetectorService
   ) {}
 
   /**
@@ -128,61 +132,84 @@ export class DocumentsService {
       let priceMatchesExtracted: boolean | undefined;
 
       if (oreaDetection.isOREAForm) {
-        // Use APS parser with HYBRID validation (text + images)
         try {
-          console.log(
-            "🔍 Using APS parser with hybrid validation (text + images)..."
-          );
+          console.log("🔍 Using APS parser for text extraction...");
 
-          const hybridResult =
-            await this.apsParserService.parseApsWithHybridValidation(pdfBuffer);
+          // Step 1: Parse text data from PDF
+          const apsResult = await this.apsParserService.parseAps(pdfBuffer);
 
           // Convert APS result to legacy ExtractedOfferData format
-          extractedData = this.convertApsResultToLegacyFormat(hybridResult);
+          extractedData = this.convertApsResultToLegacyFormat(apsResult);
 
           // Store the full APS result in formFieldsExtracted
-          formFieldsExtracted = hybridResult;
-
-          // Set validation status based on HYBRID confidence score
-          const finalConfidence = hybridResult.crossValidationScore;
-          if (finalConfidence > 0.75) {
-            validationStatus = "passed";
-          } else if (finalConfidence > 0.5) {
-            validationStatus = "needs_review";
-          } else {
-            validationStatus = "failed";
-          }
-
-          // Check for required signatures from visual validation
-          hasRequiredSignatures =
-            hybridResult.visualValidation?.signatureDetection?.hasSignatures ||
-            false;
+          formFieldsExtracted = apsResult;
 
           // Check if price was extracted
           priceMatchesExtracted =
-            !!hybridResult.price_and_deposit?.purchase_price?.numeric;
+            !!apsResult.price_and_deposit?.purchase_price?.numeric;
 
           console.log(
-            `✅ Hybrid validation complete. Strategy: ${
-              hybridResult.validationStrategy
-            }, Cross-validation: ${(finalConfidence * 100).toFixed(1)}%`
+            `✅ Text extraction complete. Strategy: ${apsResult.strategyUsed}`
           );
 
-          // Log signature detection results
-          if (hybridResult.visualValidation) {
-            const sigCount =
-              hybridResult.visualValidation.signatureDetection.signatureCount;
-            console.log(
-              `   📝 Signatures detected: ${sigCount} (${
-                hasRequiredSignatures ? "VALID" : "MISSING"
-              })`
+          // Step 2: Check buyer initials using image analysis
+          try {
+            console.log("🖼️  Checking buyer initials with image analysis...");
+
+            const images = await this.pdfToImageService.convertPdfToImages(
+              pdfBuffer,
+              {
+                maxPages: 15,
+                quality: 90,
+              }
             );
+
+            if (images.length > 0) {
+              const initialsCheck =
+                await this.signatureDetectorService.checkBuyerInitials(images);
+
+              // Set hasRequiredSignatures based on initials check
+              // Require ALL 5 pages (1, 2, 3, 4, 6) to have initials
+              hasRequiredSignatures = initialsCheck.allInitialsPresent;
+
+              // Set validation status based ONLY on initials presence
+              if (initialsCheck.allInitialsPresent) {
+                validationStatus = "passed";
+              } else {
+                validationStatus = "failed";
+              }
+
+              console.log(
+                `✅ Initials check complete: ${
+                  initialsCheck.totalInitialsFound
+                }/5 pages (${hasRequiredSignatures ? "VALID" : "MISSING"})`
+              );
+
+              // Log which pages are missing initials
+              if (!hasRequiredSignatures) {
+                const missingPages = initialsCheck.pageResults
+                  .filter((p) => !p.hasInitials)
+                  .map((p) => p.pageNumber);
+                console.log(
+                  `   ⚠️  Missing initials on pages: ${missingPages.join(", ")}`
+                );
+                validationErrors = [
+                  `Missing buyer initials on pages: ${missingPages.join(", ")}`,
+                ];
+              }
+            } else {
+              console.log("⚠️  No images generated, skipping initials check");
+              validationStatus = "not_validated";
+            }
+          } catch (imageError: any) {
+            console.log(
+              "⚠️  Image-based initials check failed:",
+              imageError.message
+            );
+            validationStatus = "not_validated";
           }
         } catch (error: any) {
-          console.error(
-            "❌ Hybrid validation failed, using fallback:",
-            error.message
-          );
+          console.error("❌ APS parsing failed:", error.message);
           // Fallback to basic extraction
           extractedData = this.extractOfferData(textContent);
           validationStatus = "not_validated";

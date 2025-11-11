@@ -7,7 +7,8 @@ The Smart Brokerage API uses Docker for Railway deployment to ensure **GraphicsM
 ## Why Docker?
 
 ✅ **Consistent environment** across local and production
-✅ **GraphicsMagick included** automatically
+✅ **GraphicsMagick + Ghostscript included** automatically
+✅ **OpenSSL for Prisma** included
 ✅ **No buildpack configuration** needed
 ✅ **Faster deploys** with multi-stage builds
 
@@ -93,11 +94,15 @@ The Dockerfile uses a multi-stage build for efficiency:
 ### Key Features
 
 ```dockerfile
-# GraphicsMagick installed in both stages
-RUN apk add --no-cache graphicsmagick
+# All required system dependencies
+RUN apk add --no-cache \
+    graphicsmagick \
+    ghostscript \      # Required for PDF processing
+    openssl \          # Required for Prisma
+    libc6-compat       # Required for Prisma on Alpine
 
 # Verification step
-RUN gm version
+RUN gm version && gs --version
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=3s \

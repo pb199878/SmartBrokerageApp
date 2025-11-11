@@ -138,7 +138,9 @@ export class ApsParserService {
           );
 
           console.log(
-            `✅ Hybrid validation complete. Cross-validation score: ${(crossValidationScore * 100).toFixed(1)}%`
+            `✅ Hybrid validation complete. Cross-validation score: ${(
+              crossValidationScore * 100
+            ).toFixed(1)}%`
           );
         }
       } catch (imageError: any) {
@@ -146,10 +148,10 @@ export class ApsParserService {
         console.log(
           "⚠️  Image-based validation not available (GraphicsMagick not installed)"
         );
-        console.log("   Using text-only validation. To enable image validation:");
         console.log(
-          "   - Local: brew install graphicsmagick"
+          "   Using text-only validation. To enable image validation:"
         );
+        console.log("   - Local: brew install graphicsmagick");
         console.log(
           "   - Railway: Add graphicsmagick buildpack (see HYBRID_VALIDATION_SETUP.md)"
         );

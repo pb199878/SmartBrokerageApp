@@ -45,8 +45,7 @@ packages/api/prisma/migrations/
 # Railway
 .railway/
 
-OREA APS Form copy 3.pdf
-OREA APS Form copy 2.pdf
+OREA APS Form copy *.pdf
 OREA APS Form copy 2-parsed.json
 debug-pdf-text.js
 packages/api/visualize-bbox.js

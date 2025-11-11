@@ -136,13 +136,29 @@ export class OffersService {
     // Check validation status - auto-reject if failed
     const validationStatus =
       offerAttachment?.documentAnalysis?.validationStatus;
-    if (validationStatus === "failed") {
+    const hasRequiredSignatures =
+      offerAttachment?.documentAnalysis?.hasRequiredSignatures;
+
+    // Reject if validation failed OR if required signatures are missing
+    const shouldReject =
+      validationStatus === "failed" || hasRequiredSignatures === false;
+
+    if (shouldReject) {
       const validationErrors = Array.isArray(
         offerAttachment.documentAnalysis.validationErrors
       )
         ? offerAttachment.documentAnalysis.validationErrors
         : [];
+
+      // Add signature error if missing
+      if (hasRequiredSignatures === false) {
+        validationErrors.push("Missing required buyer signatures/initials");
+      }
+
       console.log(`❌ Offer validation failed. Auto-rejecting...`);
+      console.log(`   - Validation status: ${validationStatus}`);
+      console.log(`   - Has required signatures: ${hasRequiredSignatures}`);
+
       await this.autoRejectInvalidOffer(
         message,
         offerAttachment,

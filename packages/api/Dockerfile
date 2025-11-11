@@ -19,15 +19,19 @@ COPY packages/mobile/package*.json ./packages/mobile/
 # Install ALL dependencies from root (handles workspaces correctly)
 RUN npm install
 
-# Copy source code
+# Copy source code (includes tsconfig.json in each package)
 COPY packages/api ./packages/api
 COPY packages/shared ./packages/shared
+
+# Build the shared package FIRST (API depends on it)
+WORKDIR /app/packages/shared
+RUN npm run build && ls -la dist/
 
 # Generate Prisma client
 WORKDIR /app/packages/api
 RUN npx prisma generate
 
-# Build the application
+# Build the API application
 RUN npm run build
 
 # Production stage
@@ -46,7 +50,8 @@ COPY --from=builder /app/packages/api/dist ./dist
 COPY --from=builder /app/packages/api/package*.json ./
 COPY --from=builder /app/packages/api/prisma ./prisma
 COPY --from=builder /app/node_modules /app/node_modules
-COPY --from=builder /app/packages/shared /app/packages/shared
+COPY --from=builder /app/packages/shared/dist /app/packages/shared/dist
+COPY --from=builder /app/packages/shared/package.json /app/packages/shared/package.json
 
 # Expose port
 EXPOSE 3000

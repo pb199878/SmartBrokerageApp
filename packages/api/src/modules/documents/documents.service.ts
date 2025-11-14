@@ -2,9 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
 import { ApsParserService } from "../aps-parser/aps-parser.service";
+import { Orea124ParserService } from "../aps-parser/orea-124-parser.service";
 import { PdfToImageService } from "../aps-parser/pdf-to-image.service";
 import { SignatureDetectorService } from "../aps-parser/signature-detector.service";
-import { ApsParseResult } from "@smart-brokerage/shared";
+import { ApsParseResult, Orea124ParseResult } from "@smart-brokerage/shared";
 import axios from "axios";
 import { PDFParse } from "pdf-parse";
 
@@ -81,6 +82,7 @@ export class DocumentsService {
     private prisma: PrismaService,
     private supabaseService: SupabaseService,
     private apsParserService: ApsParserService,
+    private orea124ParserService: Orea124ParserService,
     private pdfToImageService: PdfToImageService,
     private signatureDetectorService: SignatureDetectorService
   ) {}
@@ -133,85 +135,118 @@ export class DocumentsService {
 
       if (oreaDetection.isOREAForm) {
         try {
-          console.log("🔍 Using APS parser for text extraction...");
-
-          // Step 1: Parse text data from PDF
-          const apsResult = await this.apsParserService.parseAps(pdfBuffer);
-
-          // Convert APS result to legacy ExtractedOfferData format
-          extractedData = this.convertApsResultToLegacyFormat(apsResult);
-
-          // Store the full APS result in formFieldsExtracted
-          formFieldsExtracted = apsResult;
-
-          // Check if price was extracted
-          priceMatchesExtracted =
-            !!apsResult.price_and_deposit?.purchase_price?.numeric;
-
-          console.log(
-            `✅ Text extraction complete. Strategy: ${apsResult.strategyUsed}`
-          );
-
-          // Step 2: Check buyer initials using image analysis
-          try {
-            console.log("🖼️  Checking buyer initials with image analysis...");
-
-            const images = await this.pdfToImageService.convertPdfToImages(
-              pdfBuffer,
-              {
-                maxPages: 15,
-                quality: 90,
-              }
+          // Check if this is a Form 124 (Notice of Fulfillment)
+          if (oreaDetection.formType?.includes("Form 124")) {
+            console.log(
+              "🔍 Using OREA 124 parser for fulfillment extraction..."
             );
 
-            if (images.length > 0) {
-              const initialsCheck =
-                await this.signatureDetectorService.checkBuyerInitials(images);
+            const orea124Result = await this.orea124ParserService.parseOrea124(
+              pdfBuffer
+            );
 
-              // Set hasRequiredSignatures based on initials check
-              // Require ALL 5 pages (1, 2, 3, 4, 6) to have initials
-              hasRequiredSignatures = initialsCheck.allInitialsPresent;
+            // Store the OREA 124 result in formFieldsExtracted
+            formFieldsExtracted = orea124Result;
 
-              // Set validation status based ONLY on initials presence
-              if (initialsCheck.allInitialsPresent) {
-                validationStatus = "passed";
-              } else {
-                validationStatus = "failed";
-              }
+            console.log(
+              `✅ OREA 124 parsing complete: ${orea124Result.fulfilledConditions.length} condition(s) fulfilled`
+            );
 
-              console.log(
-                `✅ Initials check complete: ${
-                  initialsCheck.totalInitialsFound
-                }/5 pages (${hasRequiredSignatures ? "VALID" : "MISSING"})`
+            // Mark as validated if parsing succeeded
+            validationStatus = orea124Result.success ? "passed" : "failed";
+
+            // Note: Condition fulfillment logic will be triggered separately
+            // after the document analysis is saved
+          } else {
+            // This is a Form 100 (APS) or other form
+            console.log("🔍 Using APS parser for text extraction...");
+
+            // Step 1: Parse text data from PDF
+            const apsResult = await this.apsParserService.parseAps(pdfBuffer);
+
+            // Convert APS result to legacy ExtractedOfferData format
+            extractedData = this.convertApsResultToLegacyFormat(apsResult);
+
+            // Store the full APS result in formFieldsExtracted
+            formFieldsExtracted = apsResult;
+
+            // Check if price was extracted
+            priceMatchesExtracted =
+              !!apsResult.price_and_deposit?.purchase_price?.numeric;
+
+            console.log(
+              `✅ Text extraction complete. Strategy: ${apsResult.strategyUsed}`
+            );
+
+            // Step 2: Check buyer initials using image analysis
+            try {
+              console.log("🖼️  Checking buyer initials with image analysis...");
+
+              const images = await this.pdfToImageService.convertPdfToImages(
+                pdfBuffer,
+                {
+                  maxPages: 15,
+                  quality: 90,
+                }
               );
 
-              // Log which pages are missing initials
-              if (!hasRequiredSignatures) {
-                const missingPages = initialsCheck.pageResults
-                  .filter((p) => !p.hasInitials)
-                  .map((p) => p.pageNumber);
+              if (images.length > 0) {
+                const initialsCheck =
+                  await this.signatureDetectorService.checkBuyerInitials(
+                    images
+                  );
+
+                // Set hasRequiredSignatures based on initials check
+                // Require ALL 5 pages (1, 2, 3, 4, 6) to have initials
+                hasRequiredSignatures = initialsCheck.allInitialsPresent;
+
+                // Set validation status based ONLY on initials presence
+                if (initialsCheck.allInitialsPresent) {
+                  validationStatus = "passed";
+                } else {
+                  validationStatus = "failed";
+                }
+
                 console.log(
-                  `   ⚠️  Missing initials on pages: ${missingPages.join(", ")}`
+                  `✅ Initials check complete: ${
+                    initialsCheck.totalInitialsFound
+                  }/5 pages (${hasRequiredSignatures ? "VALID" : "MISSING"})`
                 );
-                validationErrors = [
-                  `Missing buyer initials on pages: ${missingPages.join(", ")}`,
-                ];
+
+                // Log which pages are missing initials
+                if (!hasRequiredSignatures) {
+                  const missingPages = initialsCheck.pageResults
+                    .filter((p) => !p.hasInitials)
+                    .map((p) => p.pageNumber);
+                  console.log(
+                    `   ⚠️  Missing initials on pages: ${missingPages.join(
+                      ", "
+                    )}`
+                  );
+                  validationErrors = [
+                    `Missing buyer initials on pages: ${missingPages.join(
+                      ", "
+                    )}`,
+                  ];
+                }
+              } else {
+                console.log("⚠️  No images generated, skipping initials check");
+                validationStatus = "not_validated";
               }
-            } else {
-              console.log("⚠️  No images generated, skipping initials check");
+            } catch (imageError: any) {
+              console.log(
+                "⚠️  Image-based initials check failed:",
+                imageError.message
+              );
               validationStatus = "not_validated";
             }
-          } catch (imageError: any) {
-            console.log(
-              "⚠️  Image-based initials check failed:",
-              imageError.message
-            );
-            validationStatus = "not_validated";
           }
         } catch (error: any) {
-          console.error("❌ APS parsing failed:", error.message);
-          // Fallback to basic extraction
-          extractedData = this.extractOfferData(textContent);
+          console.error("❌ Form parsing failed:", error.message);
+          // Fallback to basic extraction for APS
+          if (!oreaDetection.formType?.includes("Form 124")) {
+            extractedData = this.extractOfferData(textContent);
+          }
           validationStatus = "not_validated";
         }
       }
@@ -357,6 +392,14 @@ export class DocumentsService {
       formType = "Form 123 - Waiver";
       confidence += 30;
       identifiers.push("Form 123 Waiver");
+    } else if (
+      text.includes("notice of fulfillment") ||
+      text.includes("form 124") ||
+      (text.includes("fulfillment") && text.includes("waiver"))
+    ) {
+      formType = "Form 124 - Notice of Fulfillment or Waiver";
+      confidence += 30;
+      identifiers.push("Form 124 Fulfillment");
     } else if (text.includes("counter offer") || text.includes("form 221")) {
       formType = "Form 221 - Counter Offer";
       confidence += 30;

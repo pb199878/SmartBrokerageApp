@@ -176,6 +176,7 @@ export class OffersService {
     let closingDate = extractedData.closingDate;
     let expiryDate = extractedData.expiryDate;
     let conditions = extractedData.conditions;
+    let scheduleAConditions = extractedData.scheduleAConditions;
     let originalDocumentS3Key = extractedData.s3Key;
 
     // Set default expiry date if none was extracted (24 hours from now)
@@ -235,6 +236,11 @@ export class OffersService {
       where: { id: message.threadId },
       data: { activeOfferId: offer.id },
     });
+
+    // Create OfferCondition records if Schedule A conditions were extracted
+    if (scheduleAConditions && scheduleAConditions.length > 0) {
+      await this.createOfferConditions(offer.id, scheduleAConditions);
+    }
 
     console.log(`✅ Created offer ${offer.id} from message ${messageId}`);
     console.log(`   - Status: ${offer.status}`);
@@ -331,6 +337,11 @@ export class OffersService {
                 documentAnalysis: true,
               },
             },
+          },
+        },
+        offerConditions: {
+          orderBy: {
+            createdAt: "asc",
           },
         },
       },
@@ -902,14 +913,37 @@ export class OffersService {
       "application/pdf"
     );
 
+    // Check if offer has pending conditions
+    const pendingConditions = await this.prisma.offerCondition.findMany({
+      where: {
+        offerId: offer.id,
+        status: "PENDING",
+      },
+    });
+
+    const hasPendingConditions = pendingConditions.length > 0;
+    const newStatus = hasPendingConditions
+      ? OfferStatus.CONDITIONALLY_ACCEPTED
+      : OfferStatus.ACCEPTED;
+
     // Update offer status
     await this.prisma.offer.update({
       where: { id: offer.id },
       data: {
-        status: OfferStatus.ACCEPTED,
+        status: newStatus,
         signedDocumentS3Key: s3Key,
+        conditionallyAcceptedAt: hasPendingConditions ? new Date() : undefined,
+        acceptedAt: hasPendingConditions ? undefined : new Date(),
       },
     });
+
+    if (hasPendingConditions) {
+      console.log(
+        `📋 Offer ${offer.id} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`
+      );
+    } else {
+      console.log(`✅ Offer ${offer.id} marked as ACCEPTED (no conditions)`);
+    }
 
     // Send signed document to buyer agent via email
     const domain = process.env.MAILGUN_DOMAIN || "";
@@ -1222,6 +1256,7 @@ Smart Brokerage Platform`;
     closingDate?: Date;
     expiryDate?: Date;
     conditions?: string;
+    scheduleAConditions?: any[];
     s3Key?: string;
   } {
     const result: any = {};
@@ -1268,8 +1303,16 @@ Smart Brokerage Platform`;
         }
       }
 
-      // Note: Conditions are not yet part of the comprehensive ApsParseResult schema
-      // They may be added in a future update to the Gemini extraction schema
+      // Extract Schedule A conditions
+      if (
+        apsData.scheduleAConditions &&
+        apsData.scheduleAConditions.length > 0
+      ) {
+        result.scheduleAConditions = apsData.scheduleAConditions;
+        console.log(
+          `📋 Found ${apsData.scheduleAConditions.length} Schedule A condition(s)`
+        );
+      }
 
       result.s3Key = attachment.s3Key;
     } else if (attachment?.documentAnalysis?.extractedData) {
@@ -1310,5 +1353,223 @@ Smart Brokerage Platform`;
     }
 
     return result;
+  }
+
+  /**
+   * Create OfferCondition records from parsed Schedule A conditions
+   */
+  private async createOfferConditions(
+    offerId: string,
+    scheduleAConditions: any[]
+  ): Promise<void> {
+    if (!scheduleAConditions || scheduleAConditions.length === 0) {
+      return;
+    }
+
+    console.log(
+      `📋 Creating ${scheduleAConditions.length} offer condition(s)...`
+    );
+
+    for (const condition of scheduleAConditions) {
+      const matchingKey = this.normalizeConditionText(condition.description);
+
+      // Parse due date if present
+      let dueDate: Date | undefined;
+      if (condition.dueDate) {
+        try {
+          dueDate = new Date(condition.dueDate);
+          if (isNaN(dueDate.getTime())) {
+            console.warn(
+              `Invalid due date for condition: ${condition.description}`
+            );
+            dueDate = undefined;
+          }
+        } catch (error) {
+          console.warn(`Failed to parse due date: ${condition.dueDate}`, error);
+          dueDate = undefined;
+        }
+      }
+
+      await this.prisma.offerCondition.create({
+        data: {
+          offerId,
+          description: condition.description,
+          dueDate,
+          matchingKey,
+          status: "PENDING",
+        },
+      });
+
+      console.log(
+        `  ✓ Created condition: ${condition.description.substring(0, 50)}...`
+      );
+    }
+  }
+
+  /**
+   * Normalize text for condition matching
+   * Used to create a stable key for matching conditions across documents
+   */
+  private normalizeConditionText(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "") // Remove punctuation
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .trim();
+  }
+
+  /**
+   * Fulfill conditions from OREA 124 form
+   * Matches fulfilled conditions to existing OfferCondition records and updates their status
+   */
+  async fulfillConditionsFromOrea124(
+    offerId: string,
+    orea124Result: any
+  ): Promise<void> {
+    if (!orea124Result.success || !orea124Result.fulfilledConditions) {
+      console.log(`⚠️  OREA 124 parsing failed or no conditions found`);
+      return;
+    }
+
+    console.log(
+      `📋 Processing ${orea124Result.fulfilledConditions.length} fulfilled condition(s) for offer ${offerId}...`
+    );
+
+    // Get all pending conditions for this offer
+    const pendingConditions = await this.prisma.offerCondition.findMany({
+      where: {
+        offerId,
+        status: "PENDING",
+      },
+    });
+
+    if (pendingConditions.length === 0) {
+      console.log(`⚠️  No pending conditions found for offer ${offerId}`);
+      return;
+    }
+
+    console.log(`   Found ${pendingConditions.length} pending condition(s)`);
+
+    // Parse completion date from OREA 124 if available
+    let completedAt = new Date();
+    if (orea124Result.documentDate) {
+      try {
+        const parsedDate = new Date(orea124Result.documentDate);
+        if (!isNaN(parsedDate.getTime())) {
+          completedAt = parsedDate;
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to parse document date: ${orea124Result.documentDate}`
+        );
+      }
+    }
+
+    // Match each fulfilled condition to a pending condition
+    let matchedCount = 0;
+    for (const fulfilledCondition of orea124Result.fulfilledConditions) {
+      const fulfilledKey = this.normalizeConditionText(
+        fulfilledCondition.description
+      );
+
+      // Find best matching pending condition
+      const matchingCondition = pendingConditions.find((pending) => {
+        return pending.matchingKey === fulfilledKey;
+      });
+
+      if (matchingCondition) {
+        // Update condition status to COMPLETED
+        await this.prisma.offerCondition.update({
+          where: { id: matchingCondition.id },
+          data: {
+            status: "COMPLETED",
+            completedAt,
+          },
+        });
+
+        console.log(
+          `  ✓ Marked condition as COMPLETED: ${matchingCondition.description.substring(
+            0,
+            50
+          )}...`
+        );
+        matchedCount++;
+      } else {
+        // Log unmatched conditions for debugging
+        console.log(
+          `  ⚠️  No matching condition found for: ${fulfilledCondition.description.substring(
+            0,
+            50
+          )}...`
+        );
+      }
+    }
+
+    console.log(
+      `✅ Matched and completed ${matchedCount}/${orea124Result.fulfilledConditions.length} condition(s)`
+    );
+
+    // Check if all conditions are now fulfilled
+    await this.checkAndUpdateOfferStatus(offerId);
+  }
+
+  /**
+   * Get all conditions for an offer
+   */
+  async getOfferConditions(offerId: string): Promise<any[]> {
+    const conditions = await this.prisma.offerCondition.findMany({
+      where: { offerId },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return conditions;
+  }
+
+  /**
+   * Check if all conditions are fulfilled and update offer status accordingly
+   */
+  private async checkAndUpdateOfferStatus(offerId: string): Promise<void> {
+    // Get all conditions for this offer
+    const allConditions = await this.prisma.offerCondition.findMany({
+      where: { offerId },
+    });
+
+    if (allConditions.length === 0) {
+      // No conditions means offer should be ACCEPTED if it was conditionally accepted
+      return;
+    }
+
+    // Check if all conditions are completed or waived
+    const pendingConditions = allConditions.filter(
+      (c) => c.status === "PENDING"
+    );
+    const expiredConditions = allConditions.filter(
+      (c) => c.status === "EXPIRED"
+    );
+
+    if (pendingConditions.length === 0 && expiredConditions.length === 0) {
+      // All conditions fulfilled! Update offer status to ACCEPTED
+      const offer = await this.prisma.offer.findUnique({
+        where: { id: offerId },
+      });
+
+      if (offer && offer.status === OfferStatus.CONDITIONALLY_ACCEPTED) {
+        await this.prisma.offer.update({
+          where: { id: offerId },
+          data: {
+            status: OfferStatus.ACCEPTED,
+            acceptedAt: new Date(),
+          },
+        });
+
+        console.log(
+          `🎉 All conditions fulfilled! Offer ${offerId} marked as ACCEPTED`
+        );
+      }
+    } else {
+      console.log(
+        `📋 Offer ${offerId} still has ${pendingConditions.length} pending condition(s)`
+      );
+    }
   }
 }

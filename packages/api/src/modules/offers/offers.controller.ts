@@ -100,4 +100,14 @@ export class OffersController {
     const result = await this.offersService.counterOffer(dto);
     return { success: true, data: result };
   }
+
+  /**
+   * Get conditions for an offer
+   * GET /offers/:id/conditions
+   */
+  @Get(":id/conditions")
+  async getOfferConditions(@Param("id") id: string) {
+    const conditions = await this.offersService.getOfferConditions(id);
+    return { success: true, data: conditions };
+  }
 }

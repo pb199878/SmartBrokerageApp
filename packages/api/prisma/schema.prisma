@@ -241,7 +241,8 @@ enum OfferStatus {
   PENDING_REVIEW // Seller hasn't reviewed yet
   AWAITING_SELLER_SIGNATURE // Seller accepted, waiting for signature
   AWAITING_BUYER_SIGNATURE // Counter-offer sent, waiting for buyer signature
-  ACCEPTED // Fully signed and accepted
+  CONDITIONALLY_ACCEPTED // Seller signed, conditions pending fulfillment
+  ACCEPTED // Fully signed and accepted (all conditions fulfilled)
   DECLINED // Seller declined
   COUNTERED // Seller sent counter-offer
   EXPIRED // Offer expired
@@ -260,6 +261,10 @@ model Offer {
   closingDate                 DateTime?
   conditions                  String?     @db.Text
   expiryDate                  DateTime?
+  
+  // Lifecycle timestamps
+  conditionallyAcceptedAt     DateTime? // When seller signed with conditions
+  acceptedAt                  DateTime? // When all conditions fulfilled
   
   // Document references
   originalDocumentS3Key       String? // Original unsigned offer from buyer agent
@@ -289,14 +294,45 @@ model Offer {
   createdAt                   DateTime    @default(now())
   updatedAt                   DateTime    @updatedAt
 
-  thread   Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  messages Message[]
+  thread           Thread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  messages         Message[]
+  offerConditions  OfferCondition[]
 
   @@index([threadId])
   @@index([messageId])
   @@index([status])
   @@index([expiryDate])
   @@map("offers")
+}
+
+// ============================================================
+// OFFER CONDITIONS
+// ============================================================
+
+enum OfferConditionStatus {
+  PENDING   // Created from APS, not yet fulfilled
+  COMPLETED // Marked fulfilled via OREA 124 or manually
+  EXPIRED   // Not completed by due date
+  WAIVED    // Condition waived (future: OREA waiver forms)
+}
+
+model OfferCondition {
+  id            String                @id @default(cuid())
+  offerId       String
+  description   String                @db.Text // Free-text condition description
+  dueDate       DateTime?             // Optional due date for this condition
+  status        OfferConditionStatus  @default(PENDING)
+  completedAt   DateTime?             // When condition was marked completed
+  matchingKey   String?               // Normalized text for matching with OREA 124
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  offer Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([offerId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("offer_conditions")
 }
 
 // ============================================================

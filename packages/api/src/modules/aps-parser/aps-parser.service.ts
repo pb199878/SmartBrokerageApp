@@ -313,9 +313,17 @@ CRITICAL INSTRUCTIONS:
 4. If a field is not present, unclear, or empty, use null
 5. For arrays (chattels, fixtures, rentals), extract each item separately
 6. For HST field, return either "included" or "excluded" based on which checkbox is marked
-7. Return ONLY the JSON object, no markdown formatting, no explanations
-8. Ensure all numeric fields are actual numbers, not strings
-9. Remove extra spaces and normalize text formatting
+7. For Schedule A conditions:
+   - Extract EACH condition as a separate item in the array
+   - Include the COMPLETE, VERBATIM description text for each condition (copy the exact wording from the document)
+   - Do NOT abbreviate, summarize, or paraphrase the condition text
+   - Preserve all legal language, clauses, and details exactly as written
+   - If a due date is mentioned for a condition, extract it in day/month/year format
+   - If no due date is mentioned, omit the due_date field or set it to null
+   - Common conditions include: financing, home inspection, status certificate, sale of buyer's property, etc.
+8. Return ONLY the JSON object, no markdown formatting, no explanations
+9. Ensure all numeric fields are actual numbers, not strings
+10. Remove extra spaces and normalize text formatting
 
 Return the JSON now:`;
 
@@ -376,6 +384,16 @@ Return the JSON now:`;
       },
       buyer_full_name: "string",
       seller_full_name: "string",
+      schedule_a_conditions: [
+        {
+          description: "string",
+          due_date: {
+            day: "string (optional)",
+            month: "string (optional)",
+            year: "string (optional)",
+          },
+        },
+      ],
       property: {
         property_address: "string",
         property_fronting: "string",
@@ -454,12 +472,20 @@ Return the JSON now:`;
     const filledFields = this.countFilledFields(geminiData);
     const docConfidence = filledFields / Math.max(totalFields, 1);
 
+    // Process Schedule A conditions
+    const scheduleAConditions = this.processScheduleAConditions(
+      geminiData.schedule_a_conditions
+    );
+
     // Return Gemini schema directly as ApsParseResult
     return {
       success: true,
       formVersion: "OREA Form 100 (2020)",
       strategyUsed: "gemini",
       docConfidence,
+
+      // Schedule A conditions
+      scheduleAConditions,
 
       // Gemini schema fields (direct mapping)
       agreement_date: geminiData.agreement_date,
@@ -476,6 +502,83 @@ Return the JSON now:`;
       acknowledgment: geminiData.acknowledgment,
       commission_trust: geminiData.commission_trust,
     };
+  }
+
+  /**
+   * Process Schedule A conditions from Gemini extraction
+   */
+  private processScheduleAConditions(
+    rawConditions?: Array<{
+      description: string;
+      due_date?: { day?: string; month?: string; year?: string };
+    }>
+  ): any[] {
+    if (!rawConditions || rawConditions.length === 0) {
+      return [];
+    }
+
+    return rawConditions
+      .filter((c) => c.description && c.description.trim().length > 0)
+      .map((condition, index) => {
+        const id = `condition-${index + 1}`;
+        const description = condition.description.trim();
+
+        // Parse due date if present
+        let dueDate: string | undefined;
+        if (
+          condition.due_date &&
+          condition.due_date.year &&
+          condition.due_date.month &&
+          condition.due_date.day
+        ) {
+          try {
+            const monthMap: { [key: string]: string } = {
+              January: "01",
+              February: "02",
+              March: "03",
+              April: "04",
+              May: "05",
+              June: "06",
+              July: "07",
+              August: "08",
+              September: "09",
+              October: "10",
+              November: "11",
+              December: "12",
+            };
+
+            const monthNum =
+              monthMap[condition.due_date.month] || condition.due_date.month;
+            const day = condition.due_date.day.padStart(2, "0");
+            const year = condition.due_date.year;
+
+            // Create ISO date string (YYYY-MM-DD)
+            dueDate = `${year}-${monthNum}-${day}`;
+
+            // Validate the date
+            const dateObj = new Date(dueDate);
+            if (isNaN(dateObj.getTime())) {
+              console.warn(
+                `Invalid due date for condition: ${description}`,
+                condition.due_date
+              );
+              dueDate = undefined;
+            }
+          } catch (error) {
+            console.warn(
+              `Failed to parse due date for condition: ${description}`,
+              error
+            );
+            dueDate = undefined;
+          }
+        }
+
+        return {
+          id,
+          description,
+          dueDate,
+        };
+      });
   }
 
   /**

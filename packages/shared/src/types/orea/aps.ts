@@ -4,6 +4,51 @@
 // See packages/api/prisma/schema.prisma for the unified Offer model
 
 // ============================================================================
+// Offer Conditions Types
+// ============================================================================
+
+export enum OfferConditionStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  EXPIRED = 'EXPIRED',
+  WAIVED = 'WAIVED',
+}
+
+export interface ParsedApsCondition {
+  id: string; // Temporary ID for frontend use
+  description: string;
+  dueDate?: string; // ISO date string
+}
+
+export interface OfferCondition {
+  id: string;
+  offerId: string;
+  description: string;
+  dueDate?: string; // ISO date string
+  status: OfferConditionStatus;
+  completedAt?: string; // ISO date string
+  matchingKey?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
+// OREA 124 (Notice of Fulfillment) Types
+// ============================================================================
+
+export interface Orea124FulfilledCondition {
+  description: string;
+  note?: string; // Optional additional notes from the form
+}
+
+export interface Orea124ParseResult {
+  success: boolean;
+  documentDate?: string; // ISO date string
+  fulfilledConditions: Orea124FulfilledCondition[];
+  errors?: string[];
+}
+
+// ============================================================================
 // APS Parser Types (for PDF extraction and analysis)
 // ============================================================================
 
@@ -19,6 +64,14 @@ export interface GeminiApsSchema {
   };
   buyer_full_name: string;
   seller_full_name: string;
+  schedule_a_conditions?: Array<{
+    description: string;
+    due_date?: {
+      day?: string;
+      month?: string;
+      year?: string;
+    };
+  }>;
   property: {
     property_address: string;
     property_fronting: string;
@@ -173,6 +226,9 @@ export interface ApsParseResult {
   formVersion?: string;
   strategyUsed: 'acroform' | 'gemini';
   docConfidence: number; // Overall document confidence (0..1)
+  
+  // Schedule A conditions (extracted from APS)
+  scheduleAConditions?: ParsedApsCondition[];
   
   // Gemini schema fields
   agreement_date?: {

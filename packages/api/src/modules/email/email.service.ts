@@ -297,6 +297,40 @@ export class EmailService {
       }
     }
 
+    // 7.5. Check for OREA 124 (Notice of Fulfillment) and process conditions
+    for (const analysis of documentAnalyses) {
+      if (analysis.formType?.includes('Form 124')) {
+        console.log('📋 Detected OREA 124 form - processing condition fulfillment...');
+        
+        // Find the active offer for this thread
+        const activeOffer = await this.prisma.offer.findFirst({
+          where: {
+            threadId: thread.id,
+            status: {
+              in: ['CONDITIONALLY_ACCEPTED', 'AWAITING_SELLER_SIGNATURE', 'ACCEPTED'],
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+
+        if (activeOffer && analysis.formFieldsExtracted) {
+          try {
+            await this.offersService.fulfillConditionsFromOrea124(
+              activeOffer.id,
+              analysis.formFieldsExtracted
+            );
+          } catch (error) {
+            console.error('Failed to process OREA 124 fulfillment:', error);
+            // Continue even if fulfillment processing fails
+          }
+        } else {
+          console.warn('⚠️  No active offer found for OREA 124 form');
+        }
+      }
+    }
+
     // 8. Classify message (hybrid: heuristics + AI if needed)
     // Now enhanced with document analysis results for better accuracy
     console.log('🤖 Classifying message...');

@@ -93,7 +93,9 @@ export class MailgunService {
     
     // Use 'stripped-text' which removes quoted replies automatically
     // Falls back to 'body-plain' if stripped-text is not available
-    const bodyText = eventData['stripped-text'] || eventData['body-plain'];
+    // Default to empty string if no body is present (e.g., attachment-only emails)
+    const bodyText = eventData['stripped-text'] || eventData['body-plain'] || '';
+    const bodyHtml = eventData['stripped-html'] || eventData['body-html'] || '';
     
     // Parse attachments if Mailgun sends them as a JSON field (rare)
     // Note: With store+notify, files come via multipart and are handled by multer
@@ -127,9 +129,9 @@ export class MailgunService {
     return {
       from: eventData.sender,
       to: eventData.recipient,
-      subject: eventData.subject,
+      subject: eventData.subject || '(No Subject)',
       bodyText: bodyText,
-      bodyHtml: eventData['stripped-html'] || eventData['body-html'],
+      bodyHtml: bodyHtml,
       messageId: eventData['Message-Id'],
       inReplyTo: eventData['In-Reply-To'] || null,
       references: eventData['References'] || null,

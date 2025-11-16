@@ -374,40 +374,43 @@ export class DocumentsService {
     });
 
     // Detect specific form types
-    if (
-      text.includes("agreement of purchase and sale") ||
-      text.includes("form 100")
-    ) {
-      formType = "Form 100 - Agreement of Purchase and Sale";
+    // IMPORTANT: Check specific forms FIRST (by form number) before generic phrases
+    // Form 124, 120, etc. often contain "agreement of purchase and sale" in their text
+    // when referencing the original APS, so we need to check for them first
+
+    if (text.includes("form 124") || text.includes("notice of fulfillment")) {
+      // Form 124 - check FIRST before generic "agreement of purchase" check
+      formType = "Form 124 - Notice of Fulfillment or Waiver";
       confidence += 30;
-      identifiers.push("Form 100 APS");
-    } else if (
-      text.includes("amendment to agreement") ||
-      text.includes("form 120")
-    ) {
-      formType = "Form 120 - Amendment to Agreement";
-      confidence += 30;
-      identifiers.push("Form 120 Amendment");
-    } else if (text.includes("waiver") || text.includes("form 123")) {
+      identifiers.push("Form 124 Fulfillment");
+    } else if (text.includes("form 123")) {
+      // Form 123 - prioritize form number over generic "waiver" text
       formType = "Form 123 - Waiver";
       confidence += 30;
       identifiers.push("Form 123 Waiver");
     } else if (
-      text.includes("notice of fulfillment") ||
-      text.includes("form 124") ||
-      (text.includes("fulfillment") && text.includes("waiver"))
+      text.includes("form 120") ||
+      text.includes("amendment to agreement")
     ) {
-      formType = "Form 124 - Notice of Fulfillment or Waiver";
+      formType = "Form 120 - Amendment to Agreement";
       confidence += 30;
-      identifiers.push("Form 124 Fulfillment");
-    } else if (text.includes("counter offer") || text.includes("form 221")) {
+      identifiers.push("Form 120 Amendment");
+    } else if (text.includes("form 221") || text.includes("counter offer")) {
       formType = "Form 221 - Counter Offer";
       confidence += 30;
       identifiers.push("Form 221 Counter Offer");
-    } else if (text.includes("mutual release") || text.includes("form 122")) {
+    } else if (text.includes("form 122") || text.includes("mutual release")) {
       formType = "Form 122 - Mutual Release";
       confidence += 30;
       identifiers.push("Form 122 Release");
+    } else if (
+      text.includes("form 100") ||
+      text.includes("agreement of purchase and sale")
+    ) {
+      // Form 100 - check LAST because many forms reference "agreement of purchase and sale"
+      formType = "Form 100 - Agreement of Purchase and Sale";
+      confidence += 30;
+      identifiers.push("Form 100 APS");
     }
 
     // Additional validation - check for required fields in APS

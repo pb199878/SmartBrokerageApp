@@ -237,7 +237,24 @@ export interface GeminiApsSchema {
 - `AWAITING_SELLER_SIGNATURE` (edge case)
 - `ACCEPTED` (for late fulfillment notices)
 
-### 6. Offers Controller (`packages/api/src/modules/offers/offers.controller.ts`)
+### 6. Classification Service (`packages/api/src/modules/classification/classification.service.ts`)
+
+#### Updated Form Classification
+**CRITICAL FIX**: OREA 124 forms are now classified as `GENERAL`, not `NEW_OFFER`
+
+- Form 100 (APS) → `NEW_OFFER` ✅
+- Form 120 (Amendment) → `AMENDMENT` ✅
+- Form 221 (Counter Offer) → `UPDATED_OFFER` ✅
+- **Form 124 (Fulfillment) → `GENERAL`** ✅ (prevents duplicate offer creation)
+- Form 123 (Waiver) → `GENERAL` ✅
+- Unknown OREA forms → `GENERAL` (conservative default)
+
+This ensures that when a Form 124 is received:
+1. ❌ It does NOT trigger offer creation (not classified as NEW_OFFER)
+2. ✅ It DOES trigger condition fulfillment (email.service checks formType directly)
+3. ✅ Message is stored as general communication
+
+### 7. Offers Controller (`packages/api/src/modules/offers/offers.controller.ts`)
 
 #### New Endpoint
 **`GET /offers/:id/conditions`**
@@ -264,37 +281,73 @@ private normalizeConditionText(text: string): string {
 }
 ```
 
-### Example Matching
+### Example Matching (Real-World WebForms Format)
 
 **APS Schedule A (original condition):**
 ```
-"This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, 
-a new first mortgage satisfactory to the Buyer in the Buyer's sole and absolute 
-discretion. Unless the Buyer gives notice in writing to the Seller by 5:00 PM 
-on December 15, 2025, that this condition is fulfilled, this Offer shall be 
-null and void."
+1. This Offer is conditional upon the Buyer arranging, at the Buyer's own 
+expense, satisfactory financing on or before January 15, 2025. Unless the 
+Buyer gives notice in writing to the Seller or the Seller's Brokerage on or 
+before the above date that this condition is fulfilled, this Offer shall be 
+null and void and the deposit shall be returned to the Buyer in full without 
+deduction.
 ```
 
-**Normalized matchingKey stored in DB:**
-```
-"this offer is conditional upon the buyer arranging at the buyers own expense a new first mortgage satisfactory to the buyer in the buyers sole and absolute discretion unless the buyer gives notice in writing to the seller by 500 pm on december 15 2025 that this condition is fulfilled this offer shall be null and void"
-```
-
-**OREA 124 (fulfilled condition - buyer may word it differently):**
-```
-"This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, 
-a new first mortgage satisfactory to the Buyer in the Buyer's sole and absolute 
-discretion. Unless the Buyer gives notice in writing to the Seller by 5:00 PM 
-on December 15, 2025, that this condition is fulfilled, this Offer shall be 
-null and void."
+**Gemini extracts from APS (raw, as-is):**
+```json
+{
+  "description": "1. This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, satisfactory financing on or before January 15, 2025. Unless the Buyer gives notice in writing to the Seller or the Seller's Brokerage on or before the above date that this condition is fulfilled, this Offer shall be null and void and the deposit shall be returned to the Buyer in full without deduction."
+}
 ```
 
-**Normalized fulfilledKey for matching:**
+**Our code cleans it:**
 ```
-"this offer is conditional upon the buyer arranging at the buyers own expense a new first mortgage satisfactory to the buyer in the buyers sole and absolute discretion unless the buyer gives notice in writing to the seller by 500 pm on december 15 2025 that this condition is fulfilled this offer shall be null and void"
+"This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, satisfactory financing on or before January 15, 2025. Unless the Buyer gives notice in writing to the Seller or the Seller's Brokerage on or before the above date that this condition is fulfilled, this Offer shall be null and void and the deposit shall be returned to the Buyer in full without deduction."
+```
+↓ (stored in DB as `description`)
+
+**Normalized matchingKey:**
+```
+"this offer is conditional upon the buyer arranging at the buyers own expense satisfactory financing on or before january 15 2025 unless the buyer gives notice in writing to the seller or the sellers brokerage on or before the above date that this condition is fulfilled this offer shall be null and void and the deposit shall be returned to the buyer in full without deduction"
+```
+↓ (stored in DB as `matchingKey`)
+
+---
+
+**OREA 124 (WebForms-generated with header):**
+```
+Condition #1:
+This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, 
+satisfactory financing on or before January 15, 2025. Unless the Buyer gives 
+notice in writing to the Seller or the Seller's Brokerage on or before the 
+above date that this condition is fulfilled, this Offer shall be null and void 
+and the deposit shall be returned to the Buyer in full without deduction.
+```
+
+**Gemini extracts from OREA 124 (raw, as-is):**
+```json
+{
+  "description": "Condition #1:\nThis Offer is conditional upon the Buyer arranging, at the Buyer's own expense, satisfactory financing on or before January 15, 2025. Unless the Buyer gives notice in writing to the Seller or the Seller's Brokerage on or before the above date that this condition is fulfilled, this Offer shall be null and void and the deposit shall be returned to the Buyer in full without deduction."
+}
+```
+
+**Our code cleans it:**
+```
+"This Offer is conditional upon the Buyer arranging, at the Buyer's own expense, satisfactory financing on or before January 15, 2025. Unless the Buyer gives notice in writing to the Seller or the Seller's Brokerage on or before the above date that this condition is fulfilled, this Offer shall be null and void and the deposit shall be returned to the Buyer in full without deduction."
+```
+↓ (same as APS after cleaning!)
+
+**Normalized fulfilledKey:**
+```
+"this offer is conditional upon the buyer arranging at the buyers own expense satisfactory financing on or before january 15 2025 unless the buyer gives notice in writing to the seller or the sellers brokerage on or before the above date that this condition is fulfilled this offer shall be null and void and the deposit shall be returned to the buyer in full without deduction"
 ```
 
 **Result:** ✅ **EXACT MATCH** - Condition marked as COMPLETED
+
+**Key Point:** Our deterministic cleaning handles all format variations:
+- `"1. This Offer..."` → `"This Offer..."`
+- `"Condition #1:\nThis Offer..."` → `"This Offer..."`
+- Both produce identical matchingKeys!
 
 ### When Matching Fails
 
@@ -314,13 +367,65 @@ If the buyer abbreviates or rewords the condition in OREA 124:
 
 **Workaround:** Future enhancement will use fuzzy matching or AI to correlate similar conditions.
 
-### Ensuring Consistent Extraction
+### Deterministic Extraction and Cleanup
 
-**Both Gemini prompts explicitly instruct:**
-- ✅ "Include the COMPLETE, VERBATIM description text for each condition"
-- ✅ "Do NOT abbreviate, summarize, or paraphrase the condition text"
-- ✅ "Preserve all legal language, clauses, and details exactly as written"
-- ✅ "Remove extra spaces and normalize text formatting"
+**Gemini extracts RAW text as-is:**
+- ✅ "Copy the EXACT text as it appears in the document"
+- ✅ "Include any numbering, prefixes, headers, or labels"
+- ✅ "Do NOT modify, clean up, or reformat the text"
+
+**Our code then cleans it deterministically:**
+```typescript
+private cleanConditionText(rawText: string): string {
+  let cleaned = rawText.trim();
+  
+  // Remove OREA 124 headers: "Condition #1:" → ""
+  cleaned = cleaned.replace(/^condition\s*#?\d+\s*:?\s*/i, "");
+  
+  // Remove leading numbers: "1. " → "", "1) " → "", "1 " → ""
+  cleaned = cleaned.replace(/^\d+[\.\)]\s*/, "");
+  cleaned = cleaned.replace(/^\d+\s+/, "");
+  
+  return cleaned.trim();
+}
+```
+
+This approach is **more reliable** than asking Gemini to follow complex formatting rules.
+
+### Handling WebForms Format Differences
+
+**Important:** WebForms-generated OREA 124 forms have slight formatting differences from Schedule A:
+
+1. **Numerical prefixes removed**: Schedule A has "1. This Offer..." but OREA 124 has "This Offer..."
+2. **Header text added**: OREA 124 adds "Condition #1:" before each clause
+3. **Line-wrapping differs**: Different margins cause text to wrap at different points
+4. **Hyphenation changes**: Hyphenation may differ due to line-wrapping
+
+**Our two-step process handles all of these:**
+
+**Step 1: Clean raw text** (for storage and display)
+```typescript
+private cleanConditionText(rawText: string): string {
+  let cleaned = rawText.trim();
+  cleaned = cleaned.replace(/^condition\s*#?\d+\s*:?\s*/i, ""); // Remove "Condition #1:"
+  cleaned = cleaned.replace(/^\d+[\.\)]\s*/, "");               // Remove "1.", "1)"
+  cleaned = cleaned.replace(/^\d+\s+/, "");                     // Remove "1 "
+  return cleaned.trim();
+}
+```
+
+**Step 2: Normalize for matching** (creates matchingKey)
+```typescript
+private normalizeConditionText(text: string): string {
+  const cleaned = this.cleanConditionText(text);  // Clean first
+  
+  return cleaned
+    .toLowerCase()              // Case-insensitive
+    .replace(/[^\w\s]/g, "")   // Remove ALL punctuation
+    .replace(/\s+/g, " ")       // Normalize whitespace
+    .trim();
+}
+```
 
 This ensures that Gemini extracts conditions identically from both forms, maximizing the chance of successful matching. However, if the **buyer physically writes different text** in OREA 124 than what was in the original APS, matching will still fail (this is a limitation of the buyer's input, not the system).
 

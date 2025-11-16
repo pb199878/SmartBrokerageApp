@@ -130,11 +130,23 @@ export class ClassificationService {
             confidence += 50;
             subCategory = MessageSubCategory.UPDATED_OFFER;
           }
-          // Other OREA forms
+          // Form 124 - Notice of Fulfillment (NOT an offer, just general communication)
+          else if (formType.includes('form 124') || formType.includes('fulfillment')) {
+            signals.push(`OREA Form 124 detected (condition fulfillment notice)`);
+            confidence += 30; // Lower confidence, it's not an offer
+            subCategory = MessageSubCategory.GENERAL; // Keep as general, not an offer
+          }
+          // Form 123 - Waiver (also not an offer)
+          else if (formType.includes('form 123') || formType.includes('waiver')) {
+            signals.push(`OREA Form 123 detected (waiver notice)`);
+            confidence += 30;
+            subCategory = MessageSubCategory.GENERAL;
+          }
+          // Other OREA forms (be conservative, don't assume it's an offer)
           else {
             signals.push(`OREA form detected: ${analysis.formType}`);
-            confidence += 40;
-            subCategory = MessageSubCategory.NEW_OFFER; // Default to offer for other forms
+            confidence += 20; // Lower confidence for unknown forms
+            subCategory = MessageSubCategory.GENERAL; // Default to general, not offer
           }
         }
         

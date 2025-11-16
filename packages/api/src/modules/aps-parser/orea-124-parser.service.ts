@@ -56,14 +56,13 @@ ${schemaJson}
 CRITICAL INSTRUCTIONS:
 1. Extract the document date if present (when the notice was signed)
 2. Extract EACH fulfilled or waived condition as a separate item in the array
-3. Include the COMPLETE, VERBATIM description text for each condition (copy the exact wording from the document)
-4. Do NOT abbreviate, summarize, or paraphrase the condition text - preserve all legal language exactly as written
-5. This is critical for matching conditions back to the original Agreement of Purchase and Sale
+3. Copy the EXACT text as it appears in the document, including any numbering, prefixes, headers, or labels
+4. Do NOT modify, clean up, or reformat the text - extract it exactly as written
+5. Include ALL text for each condition clause, preserving line breaks and formatting
 6. If there are notes or additional details about a condition, include them in the "note" field
 7. Common conditions include: financing, home inspection, status certificate, sale of buyer's property, etc.
 8. If a field is not present, unclear, or empty, use null
 9. Return ONLY the JSON object, no markdown formatting, no explanations
-10. Remove extra spaces and normalize text formatting
 
 Return the JSON now:`;
 

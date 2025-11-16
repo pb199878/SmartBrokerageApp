@@ -1371,6 +1371,10 @@ Smart Brokerage Platform`;
     );
 
     for (const condition of scheduleAConditions) {
+      // Clean the raw description (removes "1.", "Condition #1:", etc.)
+      const cleanedDescription = this.cleanConditionText(condition.description);
+
+      // Generate matching key from cleaned description
       const matchingKey = this.normalizeConditionText(condition.description);
 
       // Parse due date if present
@@ -1380,7 +1384,7 @@ Smart Brokerage Platform`;
           dueDate = new Date(condition.dueDate);
           if (isNaN(dueDate.getTime())) {
             console.warn(
-              `Invalid due date for condition: ${condition.description}`
+              `Invalid due date for condition: ${cleanedDescription}`
             );
             dueDate = undefined;
           }
@@ -1393,7 +1397,7 @@ Smart Brokerage Platform`;
       await this.prisma.offerCondition.create({
         data: {
           offerId,
-          description: condition.description,
+          description: cleanedDescription, // Store cleaned version for UI display
           dueDate,
           matchingKey,
           status: "PENDING",
@@ -1401,21 +1405,51 @@ Smart Brokerage Platform`;
       });
 
       console.log(
-        `  ✓ Created condition: ${condition.description.substring(0, 50)}...`
+        `  ✓ Created condition: ${cleanedDescription.substring(0, 50)}...`
       );
     }
   }
 
   /**
+   * Clean raw condition text extracted from PDFs
+   * Removes formatting differences between Schedule A and OREA 124
+   */
+  private cleanConditionText(rawText: string): string {
+    let cleaned = rawText.trim();
+
+    // Remove common OREA 124 headers (case-insensitive)
+    // "Condition #1:" → ""
+    // "Condition 1:" → ""
+    cleaned = cleaned.replace(/^condition\s*#?\d+\s*:?\s*/i, "");
+
+    // Remove leading numbers with various formats
+    // "1. " → ""
+    // "1) " → ""
+    // "1 " → ""
+    cleaned = cleaned.replace(/^\d+[\.\)]\s*/, "");
+    cleaned = cleaned.replace(/^\d+\s+/, "");
+
+    return cleaned.trim();
+  }
+
+  /**
    * Normalize text for condition matching
    * Used to create a stable key for matching conditions across documents
+   *
+   * This is applied AFTER cleanConditionText() to create the matching key
    */
   private normalizeConditionText(text: string): string {
-    return text
+    // First clean the raw text
+    const cleaned = this.cleanConditionText(text);
+
+    // Then normalize for matching
+    const normalized = cleaned
       .toLowerCase()
-      .replace(/[^\w\s]/g, "") // Remove punctuation
-      .replace(/\s+/g, " ") // Normalize whitespace
+      .replace(/[^\w\s]/g, "") // Remove ALL punctuation
+      .replace(/\s+/g, " ") // Normalize all whitespace to single spaces
       .trim();
+
+    return normalized;
   }
 
   /**

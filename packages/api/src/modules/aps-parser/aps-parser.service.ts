@@ -315,9 +315,9 @@ CRITICAL INSTRUCTIONS:
 6. For HST field, return either "included" or "excluded" based on which checkbox is marked
 7. For Schedule A conditions:
    - Extract EACH condition as a separate item in the array
-   - Include the COMPLETE, VERBATIM description text for each condition (copy the exact wording from the document)
-   - Do NOT abbreviate, summarize, or paraphrase the condition text
-   - Preserve all legal language, clauses, and details exactly as written
+   - Copy the EXACT text as it appears in the document, including any numbering, prefixes, or labels
+   - Do NOT modify, clean up, or reformat the text - extract it exactly as written
+   - Include ALL text for each condition clause, preserving line breaks and formatting
    - If a due date is mentioned for a condition, extract it in day/month/year format
    - If no due date is mentioned, omit the due_date field or set it to null
    - Common conditions include: financing, home inspection, status certificate, sale of buyer's property, etc.

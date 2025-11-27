@@ -146,6 +146,17 @@ export interface Offer {
   
   // Relations (populated when fetching offers with includes)
   messages?: OfferMessage[];
+  offerConditions?: Array<{
+    id: string;
+    offerId: string;
+    description: string;
+    dueDate?: string | null;
+    status: string;
+    completedAt?: string | null;
+    matchingKey?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
 }
 
 // Message with attachments for offer context
@@ -165,10 +176,16 @@ export interface DeclineOfferDto {
 
 export interface CounterOfferDto {
   offerId: string;
-  price?: number;
-  deposit?: number;
-  closingDate?: Date;
-  conditions?: string;
-  expiryDate?: Date;
+  // Only the fields seller can edit
+  editedFields: {
+    purchasePrice?: number;
+    deposit?: number;
+    completionDate?: string; // ISO date
+    conditions?: string;
+  };
+  seller: {
+    email: string;
+    name: string;
+  };
 }
 

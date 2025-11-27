@@ -26,9 +26,6 @@ export default function OfferActionScreen() {
   const { offerId, action } = route.params;
 
   const [declineReason, setDeclineReason] = useState('');
-  const [counterPrice, setCounterPrice] = useState('');
-  const [counterDeposit, setCounterDeposit] = useState('');
-  const [counterConditions, setCounterConditions] = useState('');
 
   const { data: offer, isLoading } = useQuery({
     queryKey: ['offer', offerId],
@@ -69,24 +66,15 @@ export default function OfferActionScreen() {
     },
   });
 
-  const counterMutation = useMutation({
-    mutationFn: () => offersApi.counter({
+  const handleCounterOffer = () => {
+    // Navigate to counter-offer form
+    navigation.navigate('CounterOfferForm', {
       offerId,
-      price: counterPrice ? parseFloat(counterPrice) : undefined,
-      deposit: counterDeposit ? parseFloat(counterDeposit) : undefined,
-      conditions: counterConditions || undefined,
-    }),
-    onSuccess: (data) => {
-      // Navigate to Dropbox Sign WebView for signing counter-offer
-      navigation.navigate('DropboxSign', {
-        signUrl: data.signUrl,
-        offerId: offerId,
-      });
-    },
-    onError: (error: any) => {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to create counter-offer');
-    },
-  });
+      listingId: offer.thread?.listingId || 'unknown',
+      sellerEmail: 'seller@example.com', // TODO: Get from auth context
+      sellerName: 'Seller', // TODO: Get from auth context
+    });
+  };
 
   if (isLoading || !offer) {
     return (
@@ -194,56 +182,19 @@ export default function OfferActionScreen() {
           {action === 'counter' && (
             <View style={styles.section}>
               <Text variant="titleMedium" style={styles.sectionTitle}>
-                Counter Offer Terms
+                Create Counter-Offer
               </Text>
               <Text variant="bodySmall" style={styles.helperText}>
-                Enter new terms below. Leave fields empty to keep original values.
-              </Text>
-
-              <TextInput
-                mode="outlined"
-                label="Purchase Price"
-                value={counterPrice}
-                onChangeText={setCounterPrice}
-                placeholder={formatCurrency(offer.price)}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-
-              <TextInput
-                mode="outlined"
-                label="Deposit"
-                value={counterDeposit}
-                onChangeText={setCounterDeposit}
-                placeholder={formatCurrency(offer.deposit)}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-
-              <TextInput
-                mode="outlined"
-                label="Conditions"
-                value={counterConditions}
-                onChangeText={setCounterConditions}
-                placeholder="e.g., Financing, Home Inspection"
-                multiline
-                numberOfLines={3}
-                style={styles.input}
-              />
-
-              <Text variant="bodySmall" style={styles.warningText}>
-                ⚠️ Counter-offer PDF generation is not yet implemented. This is a placeholder.
+                You'll be guided through modifying the offer terms and signing your counter-offer.
               </Text>
 
               <Button
                 mode="contained"
-                onPress={() => counterMutation.mutate()}
-                loading={counterMutation.isPending}
-                disabled={counterMutation.isPending}
+                onPress={handleCounterOffer}
                 style={styles.counterButton}
                 buttonColor="#FF9800"
               >
-                Create Counter Offer & Sign
+                Continue to Counter-Offer Form
               </Button>
             </View>
           )}

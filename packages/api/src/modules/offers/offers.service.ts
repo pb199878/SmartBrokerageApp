@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { DropboxSignService } from "../../common/dropbox-sign/dropbox-sign.service";
 import { SupabaseService } from "../../common/supabase/supabase.service";
@@ -19,7 +20,8 @@ export class OffersService {
     private dropboxSignService: DropboxSignService,
     private supabaseService: SupabaseService,
     private mailgunService: MailgunService,
-    private pdfService: PdfService
+    private pdfService: PdfService,
+    private configService: ConfigService
   ) {}
 
   /**
@@ -720,46 +722,157 @@ export class OffersService {
   }
 
   /**
-   * Create counter-offer
+   * Create counter-offer using Dropbox Sign template
    */
   async counterOffer(
     dto: CounterOfferDto
   ): Promise<{ signUrl: string; expiresAt: number }> {
-    const offer = await this.getOffer(dto.offerId);
+    console.log(`🔄 Creating counter-offer for original offer ${dto.offerId}`);
 
-    // Validate offer can be countered (allow from PENDING_REVIEW or AWAITING_SELLER_SIGNATURE)
-    if (
-      offer.status !== OfferStatus.PENDING_REVIEW &&
-      offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
-    ) {
-      throw new Error(
-        `Offer cannot be countered. Current status: ${offer.status}`
-      );
-    }
-
-    // TODO: Generate counter-offer PDF document from template
-    // For now, we'll use a placeholder approach
-    const counterOfferText = this.generateCounterOfferText(offer, dto);
-
-    // Create counter-offer as a new message + offer record
-    // In real implementation, you'd generate a Form 221 PDF here
-    console.log("⚠️  Counter-offer PDF generation not yet implemented");
-    console.log("Counter-offer details:", dto);
-
-    // Update original offer status
-    await this.prisma.offer.update({
+    // 1. Validate original offer
+    const originalOffer = await this.prisma.offer.findUnique({
       where: { id: dto.offerId },
-      data: {
-        status: OfferStatus.COUNTERED,
+      include: {
+        thread: {
+          include: {
+            listing: true,
+            sender: true,
+          },
+        },
+        messages: {
+          include: {
+            attachments: {
+              include: {
+                documentAnalysis: true,
+              },
+            },
+          },
+        },
       },
     });
 
-    // For now, return a stub response
-    // TODO: Create actual Dropbox Sign signature request with generated PDF
-    return {
-      signUrl: "https://placeholder.com/sign",
-      expiresAt: Date.now() + 3600000,
-    };
+    if (!originalOffer) {
+      throw new BadRequestException(`Offer ${dto.offerId} not found`);
+    }
+
+    // Validate offer can be countered
+    if (
+      originalOffer.status !== OfferStatus.PENDING_REVIEW &&
+      originalOffer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
+    ) {
+      throw new BadRequestException(
+        `Offer cannot be countered. Current status: ${originalOffer.status}`
+      );
+    }
+
+    // Check if offer has extracted data
+    const hasExtractedData = originalOffer.messages?.some((msg) =>
+      msg.attachments?.some((att) => att.documentAnalysis?.formFieldsExtracted)
+    );
+
+    if (!hasExtractedData) {
+      console.warn(
+        "⚠️  No extracted data found for original offer, using basic fields"
+      );
+    }
+
+    // 2. Create counter-offer Offer record
+    const counterOffer = await this.prisma.offer.create({
+      data: {
+        threadId: originalOffer.threadId,
+        messageId: originalOffer.messageId, // Link to same original message for now
+        status: OfferStatus.AWAITING_SELLER_SIGNATURE,
+        isCounterOffer: true,
+        originalOfferId: originalOffer.id,
+
+        // Store edited fields + seller info in intakeData
+        intakeData: {
+          editedFields: dto.editedFields,
+          seller: dto.seller,
+        },
+        sellerEmail: dto.seller.email,
+        sellerName: dto.seller.name,
+
+        // Copy over current values (will be overridden by template)
+        price: dto.editedFields.purchasePrice ?? originalOffer.price,
+        deposit: dto.editedFields.deposit ?? originalOffer.deposit,
+        closingDate: dto.editedFields.completionDate
+          ? new Date(dto.editedFields.completionDate)
+          : originalOffer.closingDate,
+        conditions: dto.editedFields.conditions ?? originalOffer.conditions,
+      },
+    });
+
+    console.log(`✅ Created counter-offer record ${counterOffer.id}`);
+
+    try {
+      // 3. Build template custom fields
+      const customFields = this.buildTemplateCustomFields(
+        originalOffer,
+        dto.editedFields
+      );
+
+      console.log(`📋 Built ${Object.keys(customFields).length} custom fields`);
+
+      // 4. Create Dropbox Sign embedded request from template
+      const templateId = "c58332ecdb1fa5bd6f026b0ed5161eed022041e4";
+
+      if (!templateId) {
+        throw new Error(
+          "DROPBOX_SIGN_COUNTER_OFFER_TEMPLATE_ID not configured"
+        );
+      }
+
+      const signatureResponse =
+        await this.dropboxSignService.createEmbeddedSignatureRequestFromTemplate(
+          templateId,
+          dto.seller.email,
+          dto.seller.name,
+          customFields,
+          {
+            offerId: counterOffer.id,
+            type: "counter_offer",
+            originalOfferId: originalOffer.id,
+          }
+        );
+
+      // 5. Update counter-offer with signature details
+      await this.prisma.offer.update({
+        where: { id: counterOffer.id },
+        data: {
+          hellosignSignatureRequestId: signatureResponse.signatureRequestId,
+          hellosignSignatureId: signatureResponse.signatureId,
+          signUrl: signatureResponse.signUrl,
+        },
+      });
+
+      console.log(
+        `📝 Created Dropbox Sign request: ${signatureResponse.signatureRequestId}`
+      );
+
+      // Note: Original offer status will be updated to COUNTERED only after
+      // seller successfully signs the counter-offer (in sendCounterOfferToAgent)
+
+      console.log(
+        `✅ Counter-offer created successfully. Signature URL ready for seller.`
+      );
+
+      // 7. Return signing URL
+      return {
+        signUrl: signatureResponse.signUrl,
+        expiresAt: signatureResponse.expiresAt,
+      };
+    } catch (error) {
+      // Cleanup: delete the counter-offer record if signature creation failed
+      await this.prisma.offer.delete({
+        where: { id: counterOffer.id },
+      });
+
+      console.error(`❌ Failed to create counter-offer: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to create counter-offer: ${error.message}`
+      );
+    }
   }
 
   /**
@@ -899,6 +1012,14 @@ export class OffersService {
   ): Promise<void> {
     console.log(`✅ All signatures completed for offer ${offer.id}`);
 
+    // Check if this is a counter-offer
+    if (offer.isCounterOffer) {
+      console.log(`🔄 This is a counter-offer, sending to buyer agent`);
+      await this.sendCounterOfferToAgent(offer.id);
+      return;
+    }
+
+    // Regular offer acceptance flow
     // Download signed document
     const signedDoc = await this.dropboxSignService.downloadSignedDocument(
       signatureRequest.signature_request_id
@@ -970,7 +1091,21 @@ export class OffersService {
   private async handleSignatureDeclined(offer: any): Promise<void> {
     console.log(`❌ Signature declined for offer ${offer.id}`);
 
-    // Revert offer status back to pending review
+    // If this is a counter-offer that was declined, delete it and don't mark original as COUNTERED
+    if (offer.isCounterOffer) {
+      console.log(
+        `🔄 Counter-offer declined, deleting counter-offer record ${offer.id}`
+      );
+      await this.prisma.offer.delete({
+        where: { id: offer.id },
+      });
+      console.log(
+        `✅ Counter-offer deleted. Original offer ${offer.originalOfferId} remains unchanged.`
+      );
+      return;
+    }
+
+    // For regular offers, revert status back to pending review
     await this.prisma.offer.update({
       where: { id: offer.id },
       data: {
@@ -981,34 +1116,248 @@ export class OffersService {
   }
 
   /**
-   * Generate counter-offer text
+   * Send counter-offer to buyer agent via email
+   * Called after seller signs the counter-offer
    */
-  private generateCounterOfferText(offer: any, dto: CounterOfferDto): string {
-    const changes: string[] = [];
+  private async sendCounterOfferToAgent(offerId: string): Promise<void> {
+    console.log(`📧 Sending counter-offer ${offerId} to buyer agent`);
 
-    if (dto.price !== undefined && dto.price !== offer.price) {
-      changes.push(
-        `Purchase Price: $${offer.price?.toLocaleString()} → $${dto.price.toLocaleString()}`
+    // Fetch counter-offer with all necessary relations
+    const counterOffer = await this.prisma.offer.findUnique({
+      where: { id: offerId },
+      include: {
+        thread: {
+          include: {
+            listing: true,
+            sender: true,
+          },
+        },
+        originalOffer: true,
+      },
+    });
+
+    if (!counterOffer) {
+      throw new Error(`Counter-offer ${offerId} not found`);
+    }
+
+    if (!counterOffer.hellosignSignatureRequestId) {
+      throw new Error(`Counter-offer ${offerId} has no signature request ID`);
+    }
+
+    // Validate that we have the buyer agent's email
+    if (!counterOffer.thread?.sender?.email) {
+      throw new Error(
+        `Cannot send counter-offer: buyer agent email not found. Thread sender: ${JSON.stringify(
+          counterOffer.thread?.sender
+        )}`
       );
     }
 
-    if (dto.deposit !== undefined && dto.deposit !== offer.deposit) {
-      changes.push(
-        `Deposit: $${offer.deposit?.toLocaleString()} → $${dto.deposit.toLocaleString()}`
+    const buyerAgentEmail = counterOffer.thread.sender.email;
+    const buyerAgentName = counterOffer.thread.sender.name || "Buyer Agent";
+    const listingAddress = counterOffer.thread.listing.address;
+
+    console.log(
+      `📧 Preparing to send counter-offer to buyer agent: ${buyerAgentName} <${buyerAgentEmail}>`
+    );
+
+    try {
+      // 1. Download signed PDF from Dropbox Sign
+      const signedDoc = await this.dropboxSignService.downloadSignedDocument(
+        counterOffer.hellosignSignatureRequestId
       );
-    }
 
-    if (dto.closingDate) {
-      changes.push(`Closing Date: ${dto.closingDate}`);
-    }
+      // 2. Upload to Supabase
+      const s3Key = `counter-offers/${counterOffer.thread.listingId}/${counterOffer.threadId}/${offerId}/signed.pdf`;
+      await this.supabaseService.uploadFile(
+        "attachments",
+        s3Key,
+        signedDoc,
+        "application/pdf"
+      );
 
-    if (dto.conditions) {
-      changes.push(`Conditions: ${dto.conditions}`);
-    }
+      console.log(`✅ Counter-offer PDF uploaded to: ${s3Key}`);
 
-    return `Counter-Offer for ${offer.thread.listing.address}\n\n${changes.join(
-      "\n"
-    )}`;
+      // 3. Update counter-offer with signed document key
+      await this.prisma.offer.update({
+        where: { id: offerId },
+        data: {
+          signedDocumentS3Key: s3Key,
+          status: OfferStatus.AWAITING_BUYER_SIGNATURE,
+          sellerSignedAt: new Date(),
+        },
+      });
+
+      // 4. Create outbound message record
+      const intakeData = counterOffer.intakeData as any;
+      const editedFields = intakeData?.editedFields || {};
+
+      // Build changes summary
+      const changes: string[] = [];
+
+      if (editedFields.purchasePrice && counterOffer.originalOffer) {
+        changes.push(
+          `• Purchase Price: $${
+            counterOffer.originalOffer.price?.toLocaleString() || "N/A"
+          } → $${editedFields.purchasePrice.toLocaleString()}`
+        );
+      }
+
+      if (editedFields.deposit && counterOffer.originalOffer) {
+        changes.push(
+          `• Deposit: $${
+            counterOffer.originalOffer.deposit?.toLocaleString() || "N/A"
+          } → $${editedFields.deposit.toLocaleString()}`
+        );
+      }
+
+      if (editedFields.completionDate) {
+        const newDate = new Date(
+          editedFields.completionDate
+        ).toLocaleDateString();
+        const oldDate = counterOffer.originalOffer?.closingDate
+          ? new Date(
+              counterOffer.originalOffer.closingDate
+            ).toLocaleDateString()
+          : "N/A";
+        changes.push(`• Completion Date: ${oldDate} → ${newDate}`);
+      }
+
+      if (editedFields.conditions) {
+        changes.push(`• Conditions: Modified (see attached document)`);
+      }
+
+      const changesSummary =
+        changes.length > 0
+          ? changes.join("\n")
+          : "Please see attached document for details.";
+
+      const emailBody = `Dear ${buyerAgentName},
+
+Thank you for your offer on ${listingAddress}.
+
+The seller has reviewed your offer and would like to propose the following counter-offer:
+
+ORIGINAL OFFER:
+• Purchase Price: $${
+        counterOffer.originalOffer?.price?.toLocaleString() || "N/A"
+      }
+• Deposit: $${counterOffer.originalOffer?.deposit?.toLocaleString() || "N/A"}
+• Completion Date: ${
+        counterOffer.originalOffer?.closingDate
+          ? new Date(
+              counterOffer.originalOffer.closingDate
+            ).toLocaleDateString()
+          : "N/A"
+      }
+
+COUNTER-OFFER:
+${changesSummary}
+
+Please find the signed counter-offer attached. If your client accepts these terms, please have them sign and return the document.
+
+Best regards,
+${counterOffer.sellerName || "The Seller"}`;
+
+      const message = await this.prisma.message.create({
+        data: {
+          threadId: counterOffer.threadId,
+          senderId: null, // Outbound from seller
+          senderEmail: counterOffer.sellerEmail || "seller@example.com",
+          senderName: counterOffer.sellerName || "Seller",
+          direction: "OUTBOUND",
+          subject: `Counter-Offer for ${listingAddress}`,
+          bodyText: emailBody,
+          bodyHtml: emailBody.replace(/\n/g, "<br>"),
+          status: "PENDING",
+          subCategory: MessageSubCategory.UPDATED_OFFER,
+          offerId: counterOffer.id,
+        },
+      });
+
+      console.log(`✅ Created outbound message ${message.id}`);
+
+      // 5. Create attachment record
+      await this.prisma.attachment.create({
+        data: {
+          messageId: message.id,
+          filename: `counter-offer-${listingAddress.replace(/\s+/g, "-")}.pdf`,
+          contentType: "application/pdf",
+          s3Key: s3Key,
+          size: signedDoc.length,
+          virusScanStatus: "CLEAN", // Assume clean since we generated it
+        },
+      });
+
+      // 6. Send email via Mailgun with attachment
+      const domain = process.env.MAILGUN_DOMAIN || "";
+      const fromEmail = `${counterOffer.thread.listing.emailAlias}@${domain}`;
+
+      // Get signed URL for attachment
+      const attachmentUrl = await this.supabaseService.getSignedUrl(
+        "attachments",
+        s3Key,
+        3600 // 1 hour
+      );
+
+      // TODO: Mailgun sendEmail needs to support attachments
+      // For now, just send without attachment and log warning
+      console.warn(
+        "⚠️  Attachment support not yet implemented in MailgunService"
+      );
+
+      await this.mailgunService.sendEmail(
+        fromEmail,
+        buyerAgentEmail,
+        `Counter-Offer for ${listingAddress}`,
+        emailBody,
+        emailBody.replace(/\n/g, "<br>"),
+        counterOffer.thread.emailThreadId, // In-Reply-To
+        undefined, // References - would need to build from thread
+        undefined // Message-ID
+      );
+
+      // 7. Update message status to SENT
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: { status: "SENT" },
+      });
+
+      // 8. Update thread's lastMessageAt
+      await this.prisma.thread.update({
+        where: { id: counterOffer.threadId },
+        data: { lastMessageAt: new Date() },
+      });
+
+      // 9. Update original offer status to COUNTERED (only after counter-offer is successfully signed and sent)
+      if (counterOffer.originalOfferId) {
+        await this.prisma.offer.update({
+          where: { id: counterOffer.originalOfferId },
+          data: {
+            status: OfferStatus.COUNTERED,
+          },
+        });
+        console.log(
+          `✅ Original offer ${counterOffer.originalOfferId} marked as COUNTERED`
+        );
+      }
+
+      console.log(
+        `✅ Counter-offer ${offerId} sent successfully to ${buyerAgentName} <${buyerAgentEmail}>`
+      );
+    } catch (error) {
+      console.error(`❌ Failed to send counter-offer: ${error.message}`);
+
+      // Update counter-offer with error
+      await this.prisma.offer.update({
+        where: { id: offerId },
+        data: {
+          errorMessage: `Failed to send counter-offer: ${error.message}`,
+        },
+      });
+
+      throw error;
+    }
   }
 
   /**
@@ -1604,6 +1953,296 @@ Smart Brokerage Platform`;
       console.log(
         `📋 Offer ${offerId} still has ${pendingConditions.length} pending condition(s)`
       );
+    }
+  }
+
+  /**
+   * Build template custom fields by merging original offer data with edited fields
+   * @param originalOffer - The original buyer offer with extracted data
+   * @param editedFields - The fields that seller modified
+   * @returns Flattened key-value pairs for Dropbox Sign template
+   */
+  private buildTemplateCustomFields(
+    originalOffer: any,
+    editedFields: CounterOfferDto["editedFields"]
+  ): Record<string, string> {
+    const customFields: Record<string, string> = {};
+
+    // Get the original offer's ApsParseResult from document analysis
+    const messages = originalOffer.messages || [];
+    let apsParseResult: ApsParseResult | null = null;
+
+    for (const message of messages) {
+      for (const attachment of message.attachments || []) {
+        if (attachment.documentAnalysis?.formFieldsExtracted) {
+          apsParseResult = attachment.documentAnalysis
+            .formFieldsExtracted as ApsParseResult;
+          break;
+        }
+      }
+      if (apsParseResult) break;
+    }
+
+    if (!apsParseResult) {
+      console.warn(
+        "No ApsParseResult found for original offer, using basic data"
+      );
+      // Fallback to basic offer data
+      return this.buildBasicTemplateFields(originalOffer, editedFields);
+    }
+
+    // Helper function to flatten nested objects with dot notation
+    const flattenObject = (obj: any, prefix = ""): Record<string, string> => {
+      const flattened: Record<string, string> = {};
+
+      for (const [key, value] of Object.entries(obj)) {
+        const newKey = prefix ? `${prefix}.${key}` : key;
+
+        if (value === null || value === undefined) {
+          continue;
+        } else if (typeof value === "object" && !Array.isArray(value)) {
+          Object.assign(flattened, flattenObject(value, newKey));
+        } else if (Array.isArray(value)) {
+          // Special handling for scheduleAConditions array of objects
+          if (key === "scheduleAConditions" && value.length > 0) {
+            // Format Schedule A conditions as a numbered list
+            const conditionsText = value
+              .map((condition: any, index: number) => {
+                const num = index + 1;
+                const desc = condition.description || "";
+                const dueDate = condition.dueDate
+                  ? ` (Due: ${new Date(
+                      condition.dueDate
+                    ).toLocaleDateString()})`
+                  : "";
+                return `${num}. ${desc}${dueDate}`;
+              })
+              .join("\n\n");
+            flattened[newKey] = conditionsText;
+          } else if (value.length > 0 && typeof value[0] === "string") {
+            // For string arrays, join with comma
+            flattened[newKey] = value.join(", ");
+          } else if (value.length > 0 && typeof value[0] === "object") {
+            // For other object arrays, format as JSON or skip
+            // Skip complex object arrays that aren't scheduleAConditions
+            continue;
+          }
+        } else {
+          flattened[newKey] = String(value);
+        }
+      }
+
+      return flattened;
+    };
+
+    // Start with flattened original data
+    const baseFields = flattenObject(apsParseResult);
+    Object.assign(customFields, baseFields);
+
+    // Apply edited fields as overrides
+    if (editedFields.purchasePrice !== undefined) {
+      customFields["price_and_deposit.purchase_price.numeric"] = String(
+        editedFields.purchasePrice
+      );
+      // Also update the written form (simplified)
+      customFields["price_and_deposit.purchase_price.written"] =
+        this.numberToWords(editedFields.purchasePrice);
+    }
+
+    if (editedFields.deposit !== undefined) {
+      customFields["price_and_deposit.deposit.numeric"] = String(
+        editedFields.deposit
+      );
+      customFields["price_and_deposit.deposit.written"] = this.numberToWords(
+        editedFields.deposit
+      );
+    }
+
+    if (editedFields.completionDate) {
+      const dateParts = this.parseDateString(editedFields.completionDate);
+      if (dateParts) {
+        customFields["completion.day"] = String(dateParts.day);
+        customFields["completion.month"] = dateParts.monthName;
+        customFields["completion.year"] = String(dateParts.year);
+      }
+    }
+
+    if (editedFields.conditions) {
+      // Handle conditions - if scheduleAConditions exists in original, format accordingly
+      // Otherwise, use as general conditions field
+      if (
+        apsParseResult.scheduleAConditions &&
+        apsParseResult.scheduleAConditions.length > 0
+      ) {
+        // If original had Schedule A conditions, format the edited conditions
+        // Parse the string into individual conditions (split by newlines or numbers)
+        const conditionsLines = editedFields.conditions
+          .split(/\n+/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .map((line) => {
+            // Remove leading numbers/bullets (e.g., "1. ", "1) ", "- ")
+            return line.replace(/^[\d\.\)\-\s]+/, "").trim();
+          })
+          .filter((line) => line.length > 0);
+
+        // Format as Schedule A conditions array
+        const formattedConditions = conditionsLines
+          .map((desc, index) => {
+            const num = index + 1;
+            return `${num}. ${desc}`;
+          })
+          .join("\n\n");
+
+        // Set both the general conditions field and scheduleAConditions format
+        customFields["conditions"] = formattedConditions;
+        customFields["scheduleAConditions"] = formattedConditions;
+      } else {
+        // No Schedule A conditions in original, use as general field
+        customFields["conditions"] = editedFields.conditions;
+      }
+    }
+
+    console.log(
+      `📋 Built ${
+        Object.keys(customFields).length
+      } custom fields for counter-offer template`
+    );
+
+    return customFields;
+  }
+
+  /**
+   * Build basic template fields when ApsParseResult is not available
+   */
+  private buildBasicTemplateFields(
+    originalOffer: any,
+    editedFields: CounterOfferDto["editedFields"]
+  ): Record<string, string> {
+    const fields: Record<string, string> = {};
+
+    // Use basic offer data
+    if (originalOffer.price || editedFields.purchasePrice) {
+      fields["price_and_deposit.purchase_price.numeric"] = String(
+        editedFields.purchasePrice || originalOffer.price
+      );
+    }
+
+    if (originalOffer.deposit || editedFields.deposit) {
+      fields["price_and_deposit.deposit.numeric"] = String(
+        editedFields.deposit || originalOffer.deposit
+      );
+    }
+
+    if (originalOffer.closingDate || editedFields.completionDate) {
+      const dateStr = editedFields.completionDate || originalOffer.closingDate;
+      const dateParts = this.parseDateString(dateStr);
+      if (dateParts) {
+        fields["completion.day"] = String(dateParts.day);
+        fields["completion.month"] = dateParts.monthName;
+        fields["completion.year"] = String(dateParts.year);
+      }
+    }
+
+    if (originalOffer.thread?.listing?.address) {
+      fields["property.property_address"] =
+        originalOffer.thread.listing.address;
+    }
+
+    return fields;
+  }
+
+  /**
+   * Convert number to written words (simplified for Canadian currency)
+   */
+  private numberToWords(num: number): string {
+    // This is a simplified version - in production you'd want a proper library
+    if (num >= 1000000) {
+      const millions = Math.floor(num / 1000000);
+      const thousands = Math.floor((num % 1000000) / 1000);
+      if (thousands > 0) {
+        return `${millions} Million ${thousands} Thousand Dollars`;
+      }
+      return `${millions} Million Dollars`;
+    } else if (num >= 1000) {
+      return `${Math.floor(num / 1000)} Thousand Dollars`;
+    }
+    return `${num} Dollars`;
+  }
+
+  /**
+   * Parse a date string (YYYY-MM-DD format) without timezone conversion
+   * Returns day, month (1-12), year, and month name
+   */
+  private parseDateString(dateStr: string | Date): {
+    day: number;
+    month: number;
+    year: number;
+    monthName: string;
+  } | null {
+    try {
+      let year: number, month: number, day: number;
+
+      if (dateStr instanceof Date) {
+        // If it's already a Date object, extract parts using UTC to avoid timezone issues
+        year = dateStr.getUTCFullYear();
+        month = dateStr.getUTCMonth() + 1; // getUTCMonth() returns 0-11
+        day = dateStr.getUTCDate();
+      } else {
+        // Parse YYYY-MM-DD format string directly
+        const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!match) {
+          // Try parsing as ISO string and use UTC methods
+          const date = new Date(dateStr);
+          if (isNaN(date.getTime())) {
+            return null;
+          }
+          year = date.getUTCFullYear();
+          month = date.getUTCMonth() + 1;
+          day = date.getUTCDate();
+        } else {
+          year = parseInt(match[1], 10);
+          month = parseInt(match[2], 10);
+          day = parseInt(match[3], 10);
+        }
+      }
+
+      // Validate the date
+      if (
+        year < 1900 ||
+        year > 2100 ||
+        month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > 31
+      ) {
+        return null;
+      }
+
+      // Get month name
+      const monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+
+      return {
+        day,
+        month,
+        year,
+        monthName: monthNames[month - 1],
+      };
+    } catch (error) {
+      return null;
     }
   }
 }

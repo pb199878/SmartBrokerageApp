@@ -288,6 +288,10 @@ model Offer {
   sellerSignedAt              DateTime?
   buyerSignedAt               DateTime?
   
+  // Counter-offer tracking
+  isCounterOffer              Boolean     @default(false) // Identifies outgoing counter-offers
+  originalOfferId             String? // Links to buyer's original offer
+  
   // Metadata
   declineReason               String?     @db.Text
   errorMessage                String?     @db.Text // Error during preparation or signing
@@ -297,11 +301,14 @@ model Offer {
   thread           Thread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
   messages         Message[]
   offerConditions  OfferCondition[]
+  originalOffer    Offer?            @relation("CounterOffers", fields: [originalOfferId], references: [id])
+  counterOffers    Offer[]           @relation("CounterOffers")
 
   @@index([threadId])
   @@index([messageId])
   @@index([status])
   @@index([expiryDate])
+  @@index([originalOfferId])
   @@map("offers")
 }
 

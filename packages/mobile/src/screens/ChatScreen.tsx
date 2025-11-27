@@ -23,6 +23,7 @@ import {
   MessageSubCategory,
 } from "@smart-brokerage/shared";
 import OfferCard from "../components/OfferCard";
+import Orea124Card from "../components/Orea124Card";
 
 type ChatRouteProp = RouteProp<RootStackParamList, "Chat">;
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -324,8 +325,35 @@ export default function ChatScreen() {
     const currentOffer =
       hasOffer && offers ? offers.find((o) => o.id === item.offerId) : null;
 
+    // Check for OREA-124 attachments
+    const orea124Attachment = hasAttachments
+      ? item.attachments?.find(
+          (att) =>
+            att.documentAnalysis?.formType?.includes("Form 124") &&
+            att.documentAnalysis?.formFieldsExtracted
+        )
+      : null;
+
     return (
       <View style={{ marginBottom: 8 }}>
+        {/* Show OREA-124 Card if message contains an OREA-124 form */}
+        {orea124Attachment && !currentOffer && (
+          <Orea124Card
+            attachment={orea124Attachment}
+            onViewDocument={(attachmentId) => {
+              const attachment = item.attachments?.find(
+                (att) => att.id === attachmentId
+              );
+              if (attachment) {
+                navigation.navigate("DocumentViewer", {
+                  attachmentId: attachment.id,
+                  filename: attachment.filename,
+                });
+              }
+            }}
+          />
+        )}
+
         {/* Show OfferCard if message contains an offer */}
         {currentOffer && (
           <OfferCard
@@ -425,26 +453,31 @@ export default function ChatScreen() {
             {item.bodyText}
           </Text>
 
-          {/* Attachments */}
+          {/* Attachments (exclude OREA-124 forms which have their own card) */}
           {hasAttachments && !hasOffer && (
             <View style={styles.attachments}>
-              {item.attachments!.map((att) => (
-                <TouchableOpacity
-                  key={att.id}
-                  style={styles.attachmentChip}
-                  onPress={() =>
-                    navigation.navigate("DocumentViewer", {
-                      attachmentId: att.id,
-                      filename: att.filename,
-                    })
-                  }
-                >
-                  <Text style={styles.attachmentIcon}>📎</Text>
-                  <Text style={styles.attachmentText} numberOfLines={1}>
-                    {att.filename}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {item.attachments!
+                .filter(
+                  (att) =>
+                    !att.documentAnalysis?.formType?.includes("Form 124")
+                )
+                .map((att) => (
+                  <TouchableOpacity
+                    key={att.id}
+                    style={styles.attachmentChip}
+                    onPress={() =>
+                      navigation.navigate("DocumentViewer", {
+                        attachmentId: att.id,
+                        filename: att.filename,
+                      })
+                    }
+                  >
+                    <Text style={styles.attachmentIcon}>📎</Text>
+                    <Text style={styles.attachmentText} numberOfLines={1}>
+                      {att.filename}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
             </View>
           )}
 

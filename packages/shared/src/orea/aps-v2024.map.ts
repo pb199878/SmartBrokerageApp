@@ -131,6 +131,26 @@ export const APS_2024_SIGNATURE_FIELDS: SignatureField[] = [
   // SIGNATURE BOXES - "SIGNED, SEALED AND DELIVERED" section (Page 5, 0-based index 4)
   {
     type: "signature",
+    page: 4,
+    x: 258,
+    y: 172,
+    width: 172,
+    height: 15,
+    required: true,
+    label: "Seller Signature",
+  },
+  {
+    type: "signature",
+    page: 4,
+    x: 258,
+    y: 202,
+    width: 172,
+    height: 15,
+    required: false,
+    label: "Seller Signature",
+  },
+  {
+    type: "signature",
     page: 4, // Page 5 (0-based)
     x: 330,
     y: 318, // 792 - 454 - 20 = 318 (converted: page height - bottom Y - box height)
@@ -138,6 +158,17 @@ export const APS_2024_SIGNATURE_FIELDS: SignatureField[] = [
     height: 20,
     required: true,
     label: "Seller Signature",
+  },
+  // Acknowlodgement section
+  {
+    type: "signature",
+    page: 4, // Page 5 (0-based)
+    x: 43,
+    y: 484, // 792 - 454 - 20 = 318 (converted: page height - bottom Y - box height)
+    width: 179,
+    height: 15,
+    required: true,
+    label: "Buyer Acknowledgement Signature",
   },
 ];
 

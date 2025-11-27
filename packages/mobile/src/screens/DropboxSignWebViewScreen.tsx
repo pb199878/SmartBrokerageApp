@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { View, StyleSheet, Alert } from "react-native";
-import { ActivityIndicator, Button, Text } from "react-native-paper";
+import { ActivityIndicator, Text } from "react-native-paper";
 import { WebView } from "react-native-webview";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
@@ -202,14 +202,6 @@ export default function DropboxSignWebViewScreen() {
         allowFileAccess={true}
         allowUniversalAccessFromFileURLs={true}
       />
-
-      {!loading && canGoBack && (
-        <View style={styles.footer}>
-          <Button mode="text" onPress={handleCancel} icon="close">
-            Cancel Signing
-          </Button>
-        </View>
-      )}
     </View>
   );
 }
@@ -236,11 +228,5 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
-  },
-  footer: {
-    padding: 8,
-    backgroundColor: "#f5f5f5",
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
   },
 });

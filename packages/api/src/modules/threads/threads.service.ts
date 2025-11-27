@@ -43,7 +43,11 @@ export class ThreadsService {
     return this.prisma.message.findMany({
       where: { threadId },
       include: {
-        attachments: true,
+        attachments: {
+          include: {
+            documentAnalysis: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });

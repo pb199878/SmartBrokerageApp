@@ -41,6 +41,7 @@ export class DropboxSignService {
   private readonly apiKey: string;
   private readonly clientId: string;
   private readonly isStubbed: boolean;
+  private templateFieldsCache = new Map<string, string[]>();
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>("DROPBOX_SIGN_API_KEY") || "";
@@ -530,5 +531,180 @@ export class DropboxSignService {
       signUrl: dataUrl,
       expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
     };
+  }
+
+  /**
+   * Get merge fields for a template (with caching)
+   * @param templateId - Dropbox Sign template ID
+   * @returns Array of merge field names
+   */
+  async getTemplateMergeFields(templateId: string): Promise<string[]> {
+    // Check cache first
+    if (this.templateFieldsCache.has(templateId)) {
+      return this.templateFieldsCache.get(templateId)!;
+    }
+
+    if (this.isStubbed) {
+      // Return mock fields for testing
+      const mockFields = [
+        "agreement_date.day",
+        "agreement_date.month",
+        "agreement_date.year",
+        "buyer_full_name",
+        "seller_full_name",
+        "property.property_address",
+        "price_and_deposit.purchase_price.numeric",
+        "price_and_deposit.deposit.numeric",
+        "completion.day",
+        "completion.month",
+        "completion.year",
+      ];
+      this.templateFieldsCache.set(templateId, mockFields);
+      return mockFields;
+    }
+
+    try {
+      const response = await this.apiClient.get(`/template/${templateId}`);
+      const template = response.data.template;
+      const customFields = template.custom_fields || [];
+      const fieldNames = customFields.map((field: any) => field.name);
+      
+      this.logger.log(`Retrieved ${fieldNames.length} merge fields for template ${templateId}`);
+      
+      // Cache the results
+      this.templateFieldsCache.set(templateId, fieldNames);
+      return fieldNames;
+    } catch (error) {
+      this.logger.error(`Error fetching template merge fields: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Create embedded signature request from template with custom fields
+   * @param templateId - Dropbox Sign template ID
+   * @param signerEmail - Email of the signer
+   * @param signerName - Name of the signer
+   * @param customFields - Key-value pairs for merge fields
+   * @param metadata - Optional metadata
+   * @returns Signature URL and request details
+   */
+  async createEmbeddedSignatureRequestFromTemplate(
+    templateId: string,
+    signerEmail: string,
+    signerName: string,
+    customFields: Record<string, string>,
+    metadata?: Record<string, any>
+  ): Promise<EmbeddedSignatureResponse> {
+    if (this.isStubbed) {
+      this.logger.log(
+        `[STUB] Creating embedded signature request from template ${templateId}`
+      );
+      this.logger.log(`[STUB] Signer: ${signerName} <${signerEmail}>`);
+      this.logger.log(`[STUB] Custom fields:`, customFields);
+      
+      const stubId = Date.now();
+      return {
+        signatureRequestId: `stub_template_request_${stubId}`,
+        signatureId: `stub_template_signature_${stubId}`,
+        signUrl: `https://app.hellosign.com/sign/stub_${stubId}`,
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      };
+    }
+
+    try {
+      // 1. Get valid merge fields for this template
+      const validFields = await this.getTemplateMergeFields(templateId);
+      
+      // 2. Filter custom fields to only include valid ones
+      const filteredFields: Record<string, string> = {};
+      const excludedFields: string[] = [];
+      
+      for (const [key, value] of Object.entries(customFields)) {
+        if (validFields.includes(key)) {
+          filteredFields[key] = value;
+        } else {
+          excludedFields.push(key);
+        }
+      }
+      
+      if (excludedFields.length > 0) {
+        this.logger.warn(
+          `Excluded ${excludedFields.length} fields not in template: ${excludedFields.join(", ")}`
+        );
+      }
+      
+      this.logger.log(
+        `Using ${Object.keys(filteredFields).length} custom fields for template ${templateId}`
+      );
+
+      // 3. Create FormData for the request
+      const formData = new FormData();
+      
+      formData.append(
+        "test_mode",
+        process.env.NODE_ENV !== "production" ? "1" : "0"
+      );
+      formData.append("client_id", this.clientId);
+      formData.append("template_ids[]", templateId);
+      
+      // Add signer with the "Seller Counter-Offer" role
+      const roleName = "Seller Counter-Offer";
+      this.logger.log(`Using role "${roleName}" for signer ${signerEmail}`);
+      
+      formData.append("signers[0][email_address]", signerEmail);
+      formData.append("signers[0][name]", signerName);
+      formData.append("signers[0][role]", roleName);
+      
+      // Add custom fields
+      for (const [key, value] of Object.entries(filteredFields)) {
+        formData.append(`custom_fields[${key}]`, value);
+      }
+      
+      // Add metadata
+      if (metadata) {
+        Object.entries(metadata).forEach(([key, value]) => {
+          formData.append(`metadata[${key}]`, String(value));
+        });
+      }
+
+      // 4. Create the signature request
+      const response = await this.apiClient.post(
+        "/signature_request/create_embedded_with_template",
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+          },
+        }
+      );
+
+      const signatureRequestId =
+        response.data.signature_request.signature_request_id;
+      const signatureId =
+        response.data.signature_request.signatures[0].signature_id;
+
+      this.logger.log(
+        `Created template signature request: ${signatureRequestId}`
+      );
+
+      // 5. Get embedded signing URL
+      const signUrlResponse = await this.getEmbeddedSignUrl(signatureId);
+
+      return {
+        signatureRequestId,
+        signatureId,
+        signUrl: signUrlResponse.signUrl,
+        expiresAt: signUrlResponse.expiresAt,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error creating template signature request: ${error.message}`
+      );
+      if (error.response) {
+        this.logger.error(`Response data:`, error.response.data);
+      }
+      throw error;
+    }
   }
 }

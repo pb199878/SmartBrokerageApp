@@ -203,10 +203,32 @@ export class PdfService {
 
   /**
    * Format date for PDF display
+   * Parses YYYY-MM-DD strings without timezone conversion to avoid off-by-one day errors
    */
   private formatDate(date: Date | string): string {
-    const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+    if (typeof date === 'string') {
+      // Parse YYYY-MM-DD format directly to avoid timezone conversion
+      const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        // Return as-is if already in YYYY-MM-DD format
+        return date.substring(0, 10);
+      }
+      // If not in YYYY-MM-DD format, try parsing and use UTC methods
+      const d = new Date(date);
+      if (!isNaN(d.getTime())) {
+        const year = d.getUTCFullYear();
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      return date; // Return original if parsing fails
+    } else {
+      // For Date objects, use UTC methods to avoid timezone issues
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
   }
 
   /**

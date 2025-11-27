@@ -60,31 +60,63 @@ export class OffersService {
       return existingOffer;
     }
 
-    // Check if buyer already has an active offer on THIS LISTING
-    // Business rule: One active offer per buyer per listing
-    // (Buyer can have offers on multiple listings, but not multiple offers on same listing)
-    const existingActiveOfferOnListing = await this.prisma.offer.findFirst({
+    // Check if there are any active offers/counter-offers on THIS LISTING for this buyer
+    // Business rule: When buyer submits a new offer, it supersedes ALL previous offers and counter-offers
+
+    // First, let's see ALL offers for this listing/buyer combo (for debugging)
+    console.log(
+      `🔍 Checking for existing offers on listing ${message.thread.listingId} from sender ${message.thread.senderId}`
+    );
+
+    const allOffersOnListing = await this.prisma.offer.findMany({
       where: {
         thread: {
-          listingId: message.thread.listingId, // Same listing
-          senderId: message.thread.senderId, // Same buyer
-        },
-        status: {
-          in: [
-            OfferStatus.PENDING_REVIEW,
-            OfferStatus.AWAITING_SELLER_SIGNATURE,
-            OfferStatus.AWAITING_BUYER_SIGNATURE,
-          ],
+          listingId: message.thread.listingId,
+          senderId: message.thread.senderId,
         },
       },
       include: {
         thread: true,
       },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
-    if (existingActiveOfferOnListing) {
+    console.log(
+      `📊 Total offers found for this listing/buyer: ${allOffersOnListing.length}`
+    );
+    allOffersOnListing.forEach((offer) => {
       console.log(
-        `⚠️  Buyer already has active offer on this listing. Handling...`
+        `   - Offer ${offer.id}: status=${offer.status}, isCounterOffer=${offer.isCounterOffer}, threadId=${offer.threadId}`
+      );
+    });
+
+    // Now find the ones we should supersede
+    const activeStatuses = [
+      OfferStatus.PENDING_REVIEW,
+      OfferStatus.AWAITING_SELLER_SIGNATURE,
+      OfferStatus.AWAITING_BUYER_SIGNATURE,
+      OfferStatus.COUNTERED,
+    ];
+    const existingActiveOffersOnListing = allOffersOnListing.filter((offer) =>
+      activeStatuses.includes(offer.status as any)
+    );
+
+    console.log(
+      `🔍 Found ${existingActiveOffersOnListing.length} active offer(s) that should be superseded`
+    );
+    if (existingActiveOffersOnListing.length > 0) {
+      existingActiveOffersOnListing.forEach((offer) => {
+        console.log(
+          `   ✓ Will supersede: ${offer.id} (status=${offer.status}, isCounterOffer=${offer.isCounterOffer})`
+        );
+      });
+    }
+
+    if (existingActiveOffersOnListing.length > 0) {
+      console.log(
+        `⚠️  Buyer has ${existingActiveOffersOnListing.length} active offer(s) on this listing. Handling...`
       );
 
       // Handle based on message sub-category
@@ -92,36 +124,59 @@ export class OffersService {
         message.subCategory === "UPDATED_OFFER" ||
         message.subCategory === "AMENDMENT"
       ) {
-        // This is an update/amendment to existing offer - update it instead of creating new
-        console.log(
-          `Treating as update to existing offer ${existingActiveOfferOnListing.id}`
+        // This is an update/amendment to existing offer - update the most recent buyer offer (not counter-offer)
+        const mostRecentBuyerOffer = existingActiveOffersOnListing.find(
+          (o) => !o.isCounterOffer
         );
-        return await this.updateExistingOffer(
-          existingActiveOfferOnListing.id,
-          messageId
-        );
+        if (mostRecentBuyerOffer) {
+          console.log(
+            `Treating as update to existing offer ${mostRecentBuyerOffer.id}`
+          );
+          return await this.updateExistingOffer(
+            mostRecentBuyerOffer.id,
+            messageId
+          );
+        }
       } else {
-        // New independent offer - auto-expire the old one
+        // New independent offer - supersede ALL old active offers (both buyer offers AND seller counter-offers)
         console.log(
-          `Auto-expiring old offer ${existingActiveOfferOnListing.id} - buyer submitted new offer`
+          `📝 Buyer submitted a completely new offer. Superseding ALL previous offers and counter-offers...`
         );
 
-        await this.prisma.offer.update({
-          where: { id: existingActiveOfferOnListing.id },
-          data: {
-            status: OfferStatus.EXPIRED,
-            declineReason:
-              "Buyer submitted a new offer, previous offer automatically expired",
-          },
-        });
+        for (const existingOffer of existingActiveOffersOnListing) {
+          const offerType = existingOffer.isCounterOffer
+            ? "counter-offer"
+            : "offer";
+          console.log(
+            `   Superseding ${offerType} ${existingOffer.id} (status: ${existingOffer.status})`
+          );
 
-        // Clear activeOfferId from old thread
-        await this.prisma.thread.update({
-          where: { id: existingActiveOfferOnListing.threadId },
-          data: { activeOfferId: null },
-        });
+          await this.prisma.offer.update({
+            where: { id: existingOffer.id },
+            data: {
+              status: OfferStatus.SUPERSEDED,
+              declineReason:
+                "Buyer submitted a new offer, previous offer/counter-offer automatically superseded",
+            },
+          });
 
-        console.log(`✅ Old offer expired, proceeding with new offer`);
+          // Clear activeOfferId from thread if this was the active one
+          if (existingOffer.threadId) {
+            const thread = await this.prisma.thread.findUnique({
+              where: { id: existingOffer.threadId },
+            });
+            if (thread?.activeOfferId === existingOffer.id) {
+              await this.prisma.thread.update({
+                where: { id: existingOffer.threadId },
+                data: { activeOfferId: null },
+              });
+            }
+          }
+        }
+
+        console.log(
+          `✅ Superseded ${existingActiveOffersOnListing.length} old offer(s)/counter-offer(s), proceeding with new offer`
+        );
       }
     }
 
@@ -191,22 +246,23 @@ export class OffersService {
       );
     }
 
-    // Mark any previous pending offers on this thread as expired
+    // Mark any previous pending offers on this thread as superseded
     // This handles the case where a buyer submits a new offer before the seller reviews the first one
-    const expiredCount = await this.prisma.offer.updateMany({
+    const supersededCount = await this.prisma.offer.updateMany({
       where: {
         threadId: message.threadId,
         status: OfferStatus.PENDING_REVIEW,
       },
       data: {
-        status: OfferStatus.EXPIRED,
+        status: OfferStatus.SUPERSEDED,
+        declineReason: "Superseded by a newer offer from the same buyer",
         updatedAt: new Date(),
       },
     });
 
-    if (expiredCount.count > 0) {
+    if (supersededCount.count > 0) {
       console.log(
-        `📝 Marked ${expiredCount.count} previous pending offer(s) on thread ${message.threadId} as expired`
+        `📝 Marked ${supersededCount.count} previous pending offer(s) on thread ${message.threadId} as superseded`
       );
     }
 

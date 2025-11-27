@@ -64,7 +64,14 @@ export class ThreadsService {
 
   async getThreadOffers(threadId: string) {
     const offers = await this.prisma.offer.findMany({
-      where: { threadId },
+      where: { 
+        threadId,
+        // Only return offers that should be visible in the UI
+        // Exclude EXPIRED and SUPERSEDED offers from the list
+        status: {
+          notIn: ['EXPIRED', 'SUPERSEDED'],
+        },
+      },
       include: {
         messages: {
           include: {

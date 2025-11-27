@@ -127,15 +127,32 @@ export default function ApsSigningScreen() {
   };
 
   const handleSigningComplete = () => {
+    // Check if this is a counter offer
+    const isCounterOffer = (offer as any)?.isCounterOffer === true;
+    
     Alert.alert(
       'Offer Signed! ✅',
-      'Your Agreement of Purchase and Sale has been signed successfully.',
+      isCounterOffer
+        ? 'Your counter-offer has been signed successfully and will be sent to the buyer agent.'
+        : 'Your Agreement of Purchase and Sale has been signed successfully.',
       [
         {
           text: 'OK',
           onPress: () => {
-            // Navigate back to listing or threads
-            navigation.navigate('Listings');
+            // For counter offers, navigate to messages page
+            if (isCounterOffer && offer?.threadId) {
+              const senderName = (offer as any)?.thread?.sender?.name || 'Buyer Agent';
+              // Get the root navigator to navigate from outside the modal
+              const rootNavigator = navigation.getParent() || navigation;
+              // Navigate to Chat screen - React Navigation will handle closing the modal
+              rootNavigator.navigate('Chat', {
+                threadId: offer.threadId,
+                senderName,
+              });
+            } else {
+              // For regular offers, navigate back to listings
+              navigation.navigate('Listings');
+            }
           },
         },
       ]

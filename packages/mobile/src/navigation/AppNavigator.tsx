@@ -3,11 +3,13 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import ListingsScreen from "../screens/ListingsScreen";
+import ListingDetailScreen from "../screens/ListingDetailScreen";
 import ThreadsScreen from "../screens/ThreadsScreen";
 import ChatScreen from "../screens/ChatScreen";
 import SendersScreen from "@/screens/SendersScreen";
 import DocumentViewerScreen from "../screens/DocumentViewerScreen";
 import OfferActionScreen from "../screens/OfferActionScreen";
+import OfferDetailScreen from "../screens/OfferDetailScreen";
 import DropboxSignWebViewScreen from "../screens/DropboxSignWebViewScreen";
 import ApsGuidedFormScreen from "../screens/ApsGuidedFormScreen";
 import ApsReviewScreen from "../screens/ApsReviewScreen";
@@ -16,6 +18,11 @@ import OfferAcceptedScreen from "../screens/OfferAcceptedScreen";
 
 export type RootStackParamList = {
   Listings: undefined;
+  ListingDetail: {
+    listingId: string;
+    address: string;
+    initialTab?: "messages" | "offers";
+  };
   Threads: {
     listingId: string;
     senderId: string;
@@ -26,6 +33,10 @@ export type RootStackParamList = {
   Senders: { listingId: string; address: string };
   DocumentViewer: { attachmentId: string; filename?: string };
   OfferAction: { offerId: string; action: "accept" | "decline" | "counter" };
+  OfferDetail: {
+    offerId: string;
+    listingId?: string;
+  };
   DropboxSign: { 
     signUrl: string; 
     offerId: string; 
@@ -70,6 +81,14 @@ export default function AppNavigator() {
           options={{ title: "My Listings" }}
         />
         <Stack.Screen
+          name="ListingDetail"
+          component={ListingDetailScreen}
+          options={({ route }) => ({
+            title: route.params.address,
+            headerBackTitle: "Listings",
+          })}
+        />
+        <Stack.Screen
           name="Senders"
           component={SendersScreen}
           options={({ route }) => ({
@@ -106,6 +125,14 @@ export default function AppNavigator() {
           component={OfferActionScreen}
           options={{
             title: "Offer Action",
+            headerBackTitle: "Back",
+          }}
+        />
+        <Stack.Screen
+          name="OfferDetail"
+          component={OfferDetailScreen}
+          options={{
+            title: "Offer Details",
             headerBackTitle: "Back",
           }}
         />

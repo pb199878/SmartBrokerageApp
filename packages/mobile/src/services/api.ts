@@ -48,6 +48,24 @@ api.interceptors.response.use(
 // LISTINGS API
 // ============================================================
 
+// Extended offer type with listing-specific data
+export interface ListingOffer extends Offer {
+  senderName: string | null;
+  senderEmail: string;
+  senderId: string;
+  senderBrokerage: string | null;
+  listingId: string;
+  listingAddress: string;
+  conditionSummary: {
+    total: number;
+    pending: number;
+    completed: number;
+    expired: number;
+    waived: number;
+  };
+  attachments: Attachment[];
+}
+
 export const listingsApi = {
   getAll: async (): Promise<Listing[]> => {
     const response = await api.get('/listings');
@@ -68,7 +86,18 @@ export const listingsApi = {
   getThreadsBySender: async (listingId: string, senderId: string): Promise<MessageThread[]> => {
     const response = await api.get(`/listings/${listingId}/senders/${senderId}/threads`);
     return response.data.data;
-  }
+  },
+
+  /**
+   * Get all offers for a listing with optional status filtering
+   * @param listingId - The listing ID
+   * @param statusFilter - Optional array of OfferStatus values to filter by
+   */
+  getOffers: async (listingId: string, statusFilter?: string[]): Promise<ListingOffer[]> => {
+    const params = statusFilter?.length ? { status: statusFilter.join(',') } : undefined;
+    const response = await api.get(`/listings/${listingId}/offers`, { params });
+    return response.data.data;
+  },
 };
 
 // ============================================================

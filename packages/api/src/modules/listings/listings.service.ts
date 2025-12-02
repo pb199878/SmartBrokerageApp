@@ -106,6 +106,109 @@ export class ListingsService {
     }));
   }
 
+  /**
+   * Get all offers for a listing with optional status filtering
+   * Includes offer conditions, thread info, and sender info
+   */
+  async getListingOffers(listingId: string, statusFilter?: string[]) {
+    // Build the status filter - exclude EXPIRED and SUPERSEDED by default
+    const defaultExcludedStatuses = ['EXPIRED', 'SUPERSEDED'];
+    
+    let statusCondition: any = {};
+    if (statusFilter && statusFilter.length > 0) {
+      // If specific statuses requested, use those
+      statusCondition = { in: statusFilter };
+    } else {
+      // Default: exclude EXPIRED and SUPERSEDED
+      statusCondition = { notIn: defaultExcludedStatuses };
+    }
+
+    // Find all offers for threads belonging to this listing
+    const offers = await this.prisma.offer.findMany({
+      where: {
+        thread: {
+          listingId,
+        },
+        status: statusCondition,
+      },
+      include: {
+        thread: {
+          include: {
+            sender: true,
+            listing: true,
+          },
+        },
+        offerConditions: {
+          orderBy: { createdAt: 'asc' },
+        },
+        messages: {
+          include: {
+            attachments: {
+              include: {
+                documentAnalysis: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1, // Only get the most recent message with attachments
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Transform the data to include condition summary
+    return offers.map(offer => {
+      const pendingConditions = offer.offerConditions.filter(c => c.status === 'PENDING').length;
+      const completedConditions = offer.offerConditions.filter(c => c.status === 'COMPLETED').length;
+      const expiredConditions = offer.offerConditions.filter(c => c.status === 'EXPIRED').length;
+      const waivedConditions = offer.offerConditions.filter(c => c.status === 'WAIVED').length;
+      const totalConditions = offer.offerConditions.length;
+
+      return {
+        id: offer.id,
+        threadId: offer.threadId,
+        messageId: offer.messageId,
+        status: offer.status,
+        price: offer.price,
+        deposit: offer.deposit,
+        closingDate: offer.closingDate,
+        conditions: offer.conditions,
+        expiryDate: offer.expiryDate,
+        conditionallyAcceptedAt: offer.conditionallyAcceptedAt,
+        acceptedAt: offer.acceptedAt,
+        originalDocumentS3Key: offer.originalDocumentS3Key,
+        signedDocumentS3Key: offer.signedDocumentS3Key,
+        counterOfferDocumentS3Key: offer.counterOfferDocumentS3Key,
+        preparedDocumentS3Key: offer.preparedDocumentS3Key,
+        isCounterOffer: offer.isCounterOffer,
+        originalOfferId: offer.originalOfferId,
+        declineReason: offer.declineReason,
+        createdAt: offer.createdAt,
+        updatedAt: offer.updatedAt,
+        // Sender info from thread
+        senderName: offer.thread.sender.name,
+        senderEmail: offer.thread.sender.email,
+        senderId: offer.thread.sender.id,
+        senderBrokerage: offer.thread.sender.brokerage,
+        // Listing info
+        listingId: offer.thread.listingId,
+        listingAddress: offer.thread.listing.address,
+        // Condition summary
+        conditionSummary: {
+          total: totalConditions,
+          pending: pendingConditions,
+          completed: completedConditions,
+          expired: expiredConditions,
+          waived: waivedConditions,
+        },
+        // Full conditions list
+        offerConditions: offer.offerConditions,
+        // Attachments from associated message
+        attachments: offer.messages[0]?.attachments || [],
+      };
+    });
+  }
+
   private generateShortId(): string {
     return Math.random().toString(36).substring(2, 9);
   }

@@ -1,27 +1,62 @@
 import React, { useState, useRef, useEffect } from "react";
 import { View, StyleSheet, Alert } from "react-native";
-import { ActivityIndicator, Text } from "react-native-paper";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
 import { WebView } from "react-native-webview";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import {
+  useRoute,
+  useNavigation,
+  CommonActions,
+} from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
+import { useQuery } from "@tanstack/react-query";
+import { offersApi } from "../services/api";
 
 type DropboxSignRouteProp = RouteProp<RootStackParamList, "DropboxSign">;
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const LOADING_TIMEOUT = 30000; // 30 seconds
 
 export default function DropboxSignWebViewScreen() {
   const route = useRoute<DropboxSignRouteProp>();
-  const navigation = useNavigation();
-  const { signUrl, offerId } = route.params;
+  const navigation = useNavigation<NavigationProp>();
+  const {
+    signUrl,
+    offerId,
+    threadId: passedThreadId,
+    senderName: passedSenderName,
+  } = route.params;
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [signingCompleted, setSigningCompleted] = useState(false);
   const webViewRef = useRef<WebView>(null);
+
+  // Fetch offer to get threadId and sender info if not passed
+  const { data: offer } = useQuery({
+    queryKey: ["offer", offerId],
+    queryFn: () => offersApi.get(offerId),
+    enabled: !!offerId,
+  });
+
+  // Use passed values or fallback to offer data
+  const threadId = passedThreadId || offer?.threadId;
+  const offerWithThread = offer as typeof offer & {
+    thread?: { sender?: { name?: string; email: string } };
+  };
+  const senderName =
+    passedSenderName ||
+    offerWithThread?.thread?.sender?.name ||
+    offerWithThread?.thread?.sender?.email;
 
   console.log("🔐 DropboxSign WebView initialized");
   console.log("Sign URL:", signUrl);
   console.log("Offer ID:", offerId);
+  console.log("Thread ID (passed):", passedThreadId);
+  console.log("Thread ID (from offer):", offer?.threadId);
+  console.log("Effective Thread ID:", threadId);
+  console.log("Sender Name:", senderName);
 
   // Set timeout for loading
   useEffect(() => {
@@ -64,13 +99,21 @@ export default function DropboxSignWebViewScreen() {
 
     // Check if signing is complete
     // Dropbox Sign redirects to a success page or sends a postMessage
-    const url = navState.url;
+    const url = navState.url.toLowerCase();
 
-    if (
+    // Check for various completion URL patterns
+    const isCompleteUrl =
       url.includes("hellosign.com/sign/success") ||
-      url.includes("signature_complete")
-    ) {
-      console.log("✅ Signature complete detected from URL");
+      url.includes("dropboxsign.com/sign/success") ||
+      url.includes("signature_complete") ||
+      url.includes("sign_complete") ||
+      url.includes("signed=true") ||
+      url.includes("status=signed") ||
+      url.includes("/complete") ||
+      url.includes("/success");
+
+    if (isCompleteUrl) {
+      console.log("✅ Signature complete detected from URL:", navState.url);
       handleSigningComplete();
     }
   };
@@ -84,14 +127,31 @@ export default function DropboxSignWebViewScreen() {
       const message = JSON.parse(data);
       console.log("Parsed message:", message);
 
-      if (
+      // Handle various completion events from Dropbox Sign
+      const isComplete =
         message.event === "signature_complete" ||
-        message.type === "complete"
-      ) {
-        console.log("✅ Signature complete event received");
+        message.event === "signature_request_signed" ||
+        message.event === "signature_request_all_signed" ||
+        message.type === "complete" ||
+        message.type === "signed";
+
+      const isCancel =
+        message.event === "cancel" ||
+        message.event === "close" ||
+        message.type === "cancel" ||
+        message.type === "close";
+
+      if (isComplete) {
+        console.log(
+          "✅ Signature complete event received:",
+          message.event || message.type
+        );
         handleSigningComplete();
-      } else if (message.event === "cancel" || message.type === "cancel") {
-        console.log("❌ Cancel event received");
+      } else if (isCancel) {
+        console.log(
+          "❌ Cancel/close event received:",
+          message.event || message.type
+        );
         handleCancel();
       } else {
         console.log("Unhandled message type:", message);
@@ -99,22 +159,57 @@ export default function DropboxSignWebViewScreen() {
     } catch (error) {
       // Not a JSON message, might be plain text
       console.log("Non-JSON message:", data);
+
+      // Check if the plain text indicates completion
+      if (
+        typeof data === "string" &&
+        (data.toLowerCase().includes("complete") ||
+          data.toLowerCase().includes("signed") ||
+          data.toLowerCase().includes("success"))
+      ) {
+        console.log("✅ Signature complete detected from text message");
+        handleSigningComplete();
+      }
     }
   };
 
   const handleSigningComplete = () => {
-    Alert.alert(
-      "Signature Complete! ✅",
-      "Your signature has been submitted. The signed document will be sent to the buyer agent shortly.",
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            // Navigate back to chat and refresh
-            navigation.goBack();
+    // Prevent multiple calls
+    if (signingCompleted) {
+      console.log("⚠️ handleSigningComplete already called, ignoring");
+      return;
+    }
+    setSigningCompleted(true);
+
+    console.log("🎉 handleSigningComplete called");
+    console.log("Thread ID available:", threadId);
+    console.log("Offer data:", offer ? "loaded" : "not loaded");
+
+    // Get the effective threadId - prefer passed value, then offer data
+    const effectiveThreadId = threadId || offer?.threadId;
+
+    // Navigate to OfferAccepted screen with whatever data we have
+    // The OfferAccepted screen will fetch missing data if needed
+    console.log(
+      "✅ Navigating to OfferAccepted with threadId:",
+      effectiveThreadId
+    );
+
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: "Listings" },
+          {
+            name: "OfferAccepted",
+            params: {
+              offerId,
+              threadId: effectiveThreadId,
+              senderName: senderName || "Agent",
+            },
           },
-        },
-      ]
+        ],
+      })
     );
   };
 
@@ -202,6 +297,14 @@ export default function DropboxSignWebViewScreen() {
         allowFileAccess={true}
         allowUniversalAccessFromFileURLs={true}
       />
+
+      {!loading && canGoBack && (
+        <View style={styles.footer}>
+          <Button mode="text" onPress={handleCancel} icon="close">
+            Cancel Signing
+          </Button>
+        </View>
+      )}
     </View>
   );
 }
@@ -228,5 +331,11 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+  },
+  footer: {
+    padding: 8,
+    backgroundColor: "#f5f5f5",
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
   },
 });

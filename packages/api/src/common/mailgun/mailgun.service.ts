@@ -43,6 +43,10 @@ export class MailgunService {
    * @param subject - Email subject
    * @param text - Plain text body
    * @param html - HTML body (optional)
+   * @param inReplyTo - In-Reply-To header for threading (optional)
+   * @param references - References header for threading (optional)
+   * @param messageId - Message-ID header (optional)
+   * @param attachments - Array of attachments with filename and data (Buffer) (optional)
    */
   async sendEmail(
     from: string,
@@ -53,6 +57,7 @@ export class MailgunService {
     inReplyTo?: string,
     references?: string,
     messageId?: string,
+    attachments?: Array<{ filename: string; data: Buffer }>,
   ): Promise<void> {
     // TODO: Implement when Mailgun is set up
     const mailgun = new Mailgun(FormData);
@@ -75,6 +80,15 @@ export class MailgunService {
     }
     if (messageId) {
       messageData['h:Message-Id'] = messageId;
+    }
+
+    // Add attachments if provided
+    if (attachments && attachments.length > 0) {
+      messageData.attachment = attachments.map(att => ({
+        filename: att.filename,
+        data: att.data,
+      }));
+      console.log(`📎 Adding ${attachments.length} attachment(s) to email`);
     }
     
     await mg.messages.create(this.domain, messageData);

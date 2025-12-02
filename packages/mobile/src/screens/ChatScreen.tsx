@@ -372,6 +372,13 @@ export default function ChatScreen() {
             onContinueToSign={(offerId) =>
               continueToSignMutation.mutate(offerId)
             }
+            onViewAccepted={(offerId, threadId, senderName) => {
+              navigation.navigate("OfferAccepted", {
+                offerId,
+                threadId: threadId || route.params.threadId,
+                senderName: senderName || route.params.senderName,
+              });
+            }}
             onReviewAndSign={(offerId) => {
               // Navigate to APS review screen with buyer details from offer
               const offer = offers?.find((o) => o.id === offerId);

@@ -11,8 +11,8 @@ import OfferActionScreen from "../screens/OfferActionScreen";
 import DropboxSignWebViewScreen from "../screens/DropboxSignWebViewScreen";
 import ApsGuidedFormScreen from "../screens/ApsGuidedFormScreen";
 import ApsReviewScreen from "../screens/ApsReviewScreen";
-import ApsSigningScreen from "../screens/ApsSigningScreen";
 import CounterOfferFormScreen from "../screens/CounterOfferFormScreen";
+import OfferAcceptedScreen from "../screens/OfferAcceptedScreen";
 
 export type RootStackParamList = {
   Listings: undefined;
@@ -26,7 +26,17 @@ export type RootStackParamList = {
   Senders: { listingId: string; address: string };
   DocumentViewer: { attachmentId: string; filename?: string };
   OfferAction: { offerId: string; action: "accept" | "decline" | "counter" };
-  DropboxSign: { signUrl: string; offerId: string };
+  DropboxSign: { 
+    signUrl: string; 
+    offerId: string; 
+    threadId?: string; 
+    senderName?: string;
+  };
+  OfferAccepted: {
+    offerId: string;
+    threadId?: string; // Optional - will be fetched from offer if not provided
+    senderName?: string;
+  };
   ApsGuidedForm: {
     offerId: string;
     listingId: string;
@@ -39,11 +49,6 @@ export type RootStackParamList = {
     sellerEmail: string;
     sellerName?: string;
     buyerDetails?: any; // Optional: buyer's offer details from parsed APS
-  };
-  ApsSigning: {
-    offerId: string;
-    signUrl: string;
-    listingId: string;
   };
   CounterOfferForm: {
     offerId: string;
@@ -111,6 +116,7 @@ export default function AppNavigator() {
             title: "Sign Document",
             headerBackVisible: false,
             presentation: "modal",
+            gestureEnabled: false, // Prevent accidental dismissal during signing
           }}
         />
         <Stack.Screen
@@ -130,20 +136,20 @@ export default function AppNavigator() {
           }}
         />
         <Stack.Screen
-          name="ApsSigning"
-          component={ApsSigningScreen}
-          options={{
-            title: "Sign APS",
-            headerBackTitle: "Cancel",
-            presentation: "modal",
-          }}
-        />
-        <Stack.Screen
           name="CounterOfferForm"
           component={CounterOfferFormScreen}
           options={{
             title: "Create Counter-Offer",
             headerBackTitle: "Back",
+          }}
+        />
+        <Stack.Screen
+          name="OfferAccepted"
+          component={OfferAcceptedScreen}
+          options={{
+            title: "Offer Accepted",
+            headerShown: false,
+            gestureEnabled: false,
           }}
         />
       </Stack.Navigator>

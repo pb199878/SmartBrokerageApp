@@ -19,6 +19,7 @@
     "expo-dev-client": "^6.0.16",
     "expo-dev-menu": "^7.0.15",
     "expo-font": "~14.0.9",
+    "expo-linear-gradient": "^15.0.7",
     "expo-notifications": "~0.32.12",
     "expo-splash-screen": "~31.0.10",
     "expo-status-bar": "~3.0.8",

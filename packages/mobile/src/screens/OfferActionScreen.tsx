@@ -39,6 +39,8 @@ export default function OfferActionScreen() {
       navigation.navigate('DropboxSign', {
         signUrl: data.signUrl,
         offerId: offerId,
+        threadId: offer?.threadId,
+        senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
       });
     },
     onError: (error: any) => {

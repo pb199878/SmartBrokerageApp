@@ -568,14 +568,18 @@ export class DropboxSignService {
       const template = response.data.template;
       const customFields = template.custom_fields || [];
       const fieldNames = customFields.map((field: any) => field.name);
-      
-      this.logger.log(`Retrieved ${fieldNames.length} merge fields for template ${templateId}`);
-      
+
+      this.logger.log(
+        `Retrieved ${fieldNames.length} merge fields for template ${templateId}`
+      );
+
       // Cache the results
       this.templateFieldsCache.set(templateId, fieldNames);
       return fieldNames;
     } catch (error) {
-      this.logger.error(`Error fetching template merge fields: ${error.message}`);
+      this.logger.error(
+        `Error fetching template merge fields: ${error.message}`
+      );
       throw error;
     }
   }
@@ -602,7 +606,7 @@ export class DropboxSignService {
       );
       this.logger.log(`[STUB] Signer: ${signerName} <${signerEmail}>`);
       this.logger.log(`[STUB] Custom fields:`, customFields);
-      
+
       const stubId = Date.now();
       return {
         signatureRequestId: `stub_template_request_${stubId}`,
@@ -615,11 +619,11 @@ export class DropboxSignService {
     try {
       // 1. Get valid merge fields for this template
       const validFields = await this.getTemplateMergeFields(templateId);
-      
+
       // 2. Filter custom fields to only include valid ones
       const filteredFields: Record<string, string> = {};
       const excludedFields: string[] = [];
-      
+
       for (const [key, value] of Object.entries(customFields)) {
         if (validFields.includes(key)) {
           filteredFields[key] = value;
@@ -627,40 +631,44 @@ export class DropboxSignService {
           excludedFields.push(key);
         }
       }
-      
+
       if (excludedFields.length > 0) {
         this.logger.warn(
-          `Excluded ${excludedFields.length} fields not in template: ${excludedFields.join(", ")}`
+          `Excluded ${
+            excludedFields.length
+          } fields not in template: ${excludedFields.join(", ")}`
         );
       }
-      
+
       this.logger.log(
-        `Using ${Object.keys(filteredFields).length} custom fields for template ${templateId}`
+        `Using ${
+          Object.keys(filteredFields).length
+        } custom fields for template ${templateId}`
       );
 
       // 3. Create FormData for the request
       const formData = new FormData();
-      
+
       formData.append(
         "test_mode",
         process.env.NODE_ENV !== "production" ? "1" : "0"
       );
       formData.append("client_id", this.clientId);
       formData.append("template_ids[]", templateId);
-      
+
       // Add signer with the "Seller Counter-Offer" role
       const roleName = "Seller Counter-Offer";
       this.logger.log(`Using role "${roleName}" for signer ${signerEmail}`);
-      
+
       formData.append("signers[0][email_address]", signerEmail);
       formData.append("signers[0][name]", signerName);
       formData.append("signers[0][role]", roleName);
-      
+
       // Add custom fields
       for (const [key, value] of Object.entries(filteredFields)) {
         formData.append(`custom_fields[${key}]`, value);
       }
-      
+
       // Add metadata
       if (metadata) {
         Object.entries(metadata).forEach(([key, value]) => {

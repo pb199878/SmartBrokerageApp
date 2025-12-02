@@ -66,7 +66,7 @@ export default function CounterOfferFormScreen() {
       const dateStr = offer.closingDate
         ? new Date(offer.closingDate).toISOString().split("T")[0]
         : "";
-      
+
       // Format conditions: prefer Schedule A conditions (offerConditions) if available
       let conditionsStr = offer.conditions || "";
       if (offer.offerConditions && offer.offerConditions.length > 0) {
@@ -104,10 +104,11 @@ export default function CounterOfferFormScreen() {
       queryClient.invalidateQueries({ queryKey: ["messages"] });
 
       // Navigate to signing screen
-      navigation.navigate("ApsSigning", {
+      navigation.navigate("DropboxSign", {
         offerId,
         signUrl: data.signUrl,
-        listingId,
+        threadId: offer?.threadId,
+        senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
       });
     },
     onError: (error: any) => {
@@ -251,11 +252,7 @@ export default function CounterOfferFormScreen() {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView}>
-        <Banner
-          visible={true}
-          icon="alert-circle"
-          style={styles.banner}
-        >
+        <Banner visible={true} icon="alert-circle" style={styles.banner}>
           You are creating a counter-offer. Modify the fields below and proceed
           to sign.
         </Banner>
@@ -474,4 +471,3 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
 });
-

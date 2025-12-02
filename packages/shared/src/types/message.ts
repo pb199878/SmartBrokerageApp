@@ -157,6 +157,16 @@ export interface Offer {
     createdAt: string;
     updatedAt: string;
   }>;
+  thread?: {
+    id: string;
+    listingId: string;
+    listing?: any;
+    sender?: {
+      id: string;
+      name?: string;
+      email: string;
+    };
+  };
 }
 
 // Message with attachments for offer context

@@ -14,18 +14,12 @@ interface OfferCardProps {
   onViewDocument?: (offerId: string) => void;
   onContinueToSign?: (offerId: string) => void;
   onReviewAndSign?: (offerId: string) => void; // New: Navigate to APS review
+  onViewAccepted?: (offerId: string, threadId?: string, senderName?: string) => void; // Navigate to accepted offer screen
   listingId?: string; // For navigation context
   attachmentId?: string; // For APS document
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// Helper function to safely parse dates
-function safeParseDate(dateValue: any): Date | null {
-  if (!dateValue) return null;
-  const parsed = new Date(dateValue);
-  return isNaN(parsed.getTime()) ? null : parsed;
-}
 
 export default function OfferCard({
   offer,
@@ -35,6 +29,7 @@ export default function OfferCard({
   onViewDocument,
   onContinueToSign,
   onReviewAndSign,
+  onViewAccepted,
   listingId,
   attachmentId,
 }: OfferCardProps) {
@@ -100,8 +95,7 @@ export default function OfferCard({
     });
   };
 
-  const expiryDate = safeParseDate(offer.expiryDate);
-  const isExpired = expiryDate && expiryDate < new Date();
+  const isExpired = offer.expiryDate && new Date(offer.expiryDate) < new Date();
   const isPending = offer.status === OfferStatus.PENDING_REVIEW;
   const isAwaitingSignature =
     offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
@@ -274,6 +268,17 @@ export default function OfferCard({
             <Text variant="bodyMedium" style={styles.acceptedText}>
               ✅ You accepted this offer on {formatDate(offer.sellerSignedAt)}
             </Text>
+            {onViewAccepted && (
+              <Button
+                mode="contained"
+                onPress={() => onViewAccepted(offer.id, offer.threadId, undefined)}
+                style={styles.viewAcceptedButton}
+                buttonColor="#059669"
+                icon="check-circle"
+              >
+                View Accepted Offer
+              </Button>
+            )}
           </View>
         )}
 
@@ -375,6 +380,10 @@ const styles = StyleSheet.create({
   acceptedText: {
     color: "#2E7D32",
     textAlign: "center",
+    marginBottom: 12,
+  },
+  viewAcceptedButton: {
+    marginTop: 8,
   },
   declinedBanner: {
     backgroundColor: "#FFEBEE",

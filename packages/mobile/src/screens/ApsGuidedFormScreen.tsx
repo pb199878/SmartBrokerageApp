@@ -116,10 +116,17 @@ export default function ApsGuidedFormScreen() {
       });
 
       // Navigate to signing screen
-      navigation.navigate("ApsSigning", {
+      // Type cast needed as API returns thread relation but type may not reflect it
+      const offerWithRelations = offer as typeof offer & {
+        thread?: { sender?: { name?: string; email: string } };
+      };
+      navigation.navigate("DropboxSign", {
         offerId,
         signUrl: result.signUrl,
-        listingId,
+        threadId: offer?.threadId,
+        senderName:
+          offerWithRelations?.thread?.sender?.name ||
+          offerWithRelations?.thread?.sender?.email,
       });
     } catch (error: any) {
       Alert.alert(

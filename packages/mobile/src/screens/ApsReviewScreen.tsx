@@ -131,10 +131,11 @@ export default function ApsReviewScreen() {
       });
 
       // Navigate to signing screen
-      navigation.navigate("ApsSigning", {
+      navigation.navigate("DropboxSign", {
         offerId,
         signUrl: result.signUrl,
-        listingId,
+        threadId: offer?.threadId,
+        senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
       });
     } catch (error: any) {
       console.error("Error preparing offer for signing:", error);

@@ -1,13 +1,13 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 // import { BullModule } from '@nestjs/bullmq'; // TODO: Uncomment when Redis is set up
-import { EmailController } from './email.controller';
-import { EmailService } from './email.service';
+import { EmailController } from "./email.controller";
+import { EmailService } from "./email.service";
 // import { EmailProcessor } from './email.processor'; // TODO: Uncomment when BullMQ is set up
-import { AttachmentsModule } from '../attachments/attachments.module';
-import { DocumentsModule } from '../documents/documents.module';
-import { ClassificationModule } from '../classification/classification.module';
-import { OffersModule } from '../offers/offers.module';
-import { ApsParserModule } from '../aps-parser/aps-parser.module';
+import { AttachmentsModule } from "../attachments/attachments.module";
+import { DocumentsModule } from "../documents/documents.module";
+import { ClassificationModule } from "../classification/classification.module";
+import { OffersModule } from "../offers/offers.module";
+import { ApsParserModule } from "../aps-parser/aps-parser.module";
 
 @Module({
   imports: [
@@ -28,4 +28,3 @@ import { ApsParserModule } from '../aps-parser/aps-parser.module';
   ],
 })
 export class EmailModule {}
-

@@ -474,7 +474,12 @@ export class EmailService {
             console.log(
               `⚠️  Counter-offer acceptance not processed: ${acceptanceResult.message}`
             );
-            // Continue with normal classification
+            // This was detected as a counter-offer acceptance attempt (even if invalid),
+            // so we should NOT treat it as a new offer. Return early to prevent classification.
+            console.log(
+              "⚠️  Skipping classification - this was a counter-offer acceptance attempt, not a new offer"
+            );
+            return;
           }
         } catch (error) {
           console.error("Failed to process counter-offer acceptance:", error);

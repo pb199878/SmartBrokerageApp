@@ -534,21 +534,12 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
 
       const prompt = `Analyze this image of Page 5 from an OREA Form 100 (Agreement of Purchase and Sale).
 
-Your task is to find the "CONFIRMATION OF ACCEPTANCE" section. This section is typically located in the lower portion of the page and contains:
-1. A statement about the seller confirming acceptance
-2. A signature line for the SELLER to confirm they received the buyer's acceptance
-3. A signature line for the BUYER to confirm their acceptance of a counter-offer
-4. A date field
+Your task is to find the "CONFIRMATION OF ACCEPTANCE" section.
 
 Look specifically for:
 - The heading "CONFIRMATION OF ACCEPTANCE" or similar text
 - Handwritten signatures in the signature boxes/lines in this section
-- Any dates written in this section
-
-IMPORTANT: This is different from the main signature section. The Confirmation of Acceptance is used when:
-- A seller made a counter-offer
-- The buyer is now accepting that counter-offer
-- Both parties sign in this specific section to confirm
+- A dotted line with (Signature of Seller or Buyer) underneath is where the signature is expected to be
 
 Return ONLY valid JSON in this exact format:
 {
@@ -605,7 +596,9 @@ Rules:
           .trim();
         parsedResult = JSON.parse(cleanedText);
       } catch (parseError) {
-        console.error(`❌ Failed to parse Confirmation of Acceptance response:`);
+        console.error(
+          `❌ Failed to parse Confirmation of Acceptance response:`
+        );
         console.error(`   Raw text: ${text}`);
         return {
           hasConfirmationSignature: false,

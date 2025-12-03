@@ -59,6 +59,30 @@ export class SignatureDetectorService {
   }
 
   /**
+   * Extract JSON object from a text response that may contain surrounding text
+   * Handles cases where Gemini adds explanatory text before/after the JSON
+   */
+  private extractJsonFromText(text: string): string {
+    // First, try to find JSON within markdown code blocks
+    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      return codeBlockMatch[1].trim();
+    }
+
+    // Try to find a JSON object pattern { ... }
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    // Fallback: just clean the text
+    return text
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+  }
+
+  /**
    * Detect signatures in PDF page images using Gemini Vision
    */
   async detectSignatures(
@@ -134,10 +158,7 @@ CRITICAL RULES:
       // Parse JSON response
       let signatureData: SignatureDetectionResult;
       try {
-        const cleanedText = text
-          .replace(/```json\n?/g, "")
-          .replace(/```\n?/g, "")
-          .trim();
+        const cleanedText = this.extractJsonFromText(text);
         signatureData = JSON.parse(cleanedText);
       } catch (parseError: any) {
         console.error("❌ Failed to parse signature detection response:", text);
@@ -435,10 +456,7 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
         };
 
         try {
-          const cleanedText = text
-            .replace(/```json\n?/g, "")
-            .replace(/```\n?/g, "")
-            .trim();
+          const cleanedText = this.extractJsonFromText(text);
           pageResult = JSON.parse(cleanedText);
 
           // Log the raw response for debugging
@@ -601,10 +619,7 @@ CRITICAL:
         };
 
         try {
-          const cleanedText = text
-            .replace(/```json\n?/g, "")
-            .replace(/```\n?/g, "")
-            .trim();
+          const cleanedText = this.extractJsonFromText(text);
           pageResult = JSON.parse(cleanedText);
         } catch (parseError) {
           console.error(`❌ Failed to parse response for page ${pageNum}:`);
@@ -862,10 +877,7 @@ Rules:
       };
 
       try {
-        const cleanedText = text
-          .replace(/```json\n?/g, "")
-          .replace(/```\n?/g, "")
-          .trim();
+        const cleanedText = this.extractJsonFromText(text);
         parsedResult = JSON.parse(cleanedText);
       } catch (parseError) {
         console.error(

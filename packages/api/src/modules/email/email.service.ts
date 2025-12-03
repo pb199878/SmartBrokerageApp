@@ -303,7 +303,7 @@ export class EmailService {
     }
 
     // 7. Analyze attachments (PDF text extraction, OREA form detection)
-    const attachments = await this.prisma.attachment.findMany({
+    let attachments = await this.prisma.attachment.findMany({
       where: { messageId: message.id },
     });
 
@@ -330,6 +330,12 @@ export class EmailService {
           }
         }
       }
+
+      // Re-fetch attachments after analysis to get updated documentAnalysisId links
+      // This ensures the attachments array has the latest data including documentAnalysisId
+      attachments = await this.prisma.attachment.findMany({
+        where: { messageId: message.id },
+      });
     }
 
     // 7.5. Check for OREA 124 (Notice of Fulfillment) and process conditions
@@ -402,9 +408,17 @@ export class EmailService {
 
         try {
           // Get the attachment to download PDF for signature check
-          const orea100Attachment = attachments.find(
+          // First try to find by documentAnalysisId (if already linked)
+          let orea100Attachment = attachments.find(
             (att) => att.documentAnalysisId === orea100Analysis.id
           );
+
+          // If not found, try to find by attachmentId from the analysis
+          if (!orea100Attachment && orea100Analysis.attachmentId) {
+            orea100Attachment = attachments.find(
+              (att) => att.id === orea100Analysis.attachmentId
+            );
+          }
 
           let hasConfirmationSignature = false;
           let isNewOfferFromBuyer = false;
@@ -501,6 +515,24 @@ export class EmailService {
               hasConfirmationSignature =
                 confirmationCheck.hasConfirmationSignature;
             }
+          } else {
+            // If attachment not found, we can't determine if it's an acceptance
+            // Default to treating it as a NEW offer (safer assumption)
+            console.log(
+              `⚠️  OREA-100 attachment not found for analysis ${orea100Analysis.id} - cannot verify if this is acceptance or new offer`
+            );
+            console.log(
+              `   Available attachments: ${attachments
+                .map((a) => a.id)
+                .join(", ")}`
+            );
+            console.log(
+              `   Analysis attachmentId: ${orea100Analysis.attachmentId}`
+            );
+            console.log(
+              `   → Defaulting to NEW OFFER (buyer may be submitting a new offer while counter-offer is pending)`
+            );
+            isNewOfferFromBuyer = true;
           }
 
           // If this is a NEW offer from the buyer (no seller initials), don't treat as acceptance

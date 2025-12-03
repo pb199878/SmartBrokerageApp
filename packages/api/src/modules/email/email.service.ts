@@ -420,7 +420,7 @@ export class EmailService {
             if (images.length > 0) {
               const confirmationCheck =
                 await this.signatureDetectorService.checkConfirmationOfAcceptance(
-                  images
+                  pdfBuffer
                 );
 
               hasConfirmationSignature =

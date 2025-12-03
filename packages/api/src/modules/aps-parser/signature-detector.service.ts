@@ -494,7 +494,7 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
    * The "CONFIRMATION OF ACCEPTANCE" section is on Page 5 (0-based index 4)
    * @param images - PDF page images (should be high quality, 200+ DPI)
    */
-  async checkConfirmationOfAcceptance(images: PdfPageImage[]): Promise<{
+  async checkConfirmationOfAcceptance(pdfBuffer: Buffer): Promise<{
     hasConfirmationSignature: boolean;
     confidence: number;
     details: {
@@ -514,27 +514,12 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
 
     try {
       const model = this.genAI!.getGenerativeModel({
-        model: "gemini-2.0-flash-exp",
+        model: "gemini-flash-lite-latest",
       });
 
-      // Page 5 (0-based index 4) contains the Confirmation of Acceptance section
-      const page5Image = images.find((img) => img.pageNumber === 5);
+      const prompt = `Analyze this PDF of an OREA Form 100 (Agreement of Purchase and Sale).
 
-      if (!page5Image) {
-        console.log(`⚠️  Page 5 not found in images`);
-        return {
-          hasConfirmationSignature: false,
-          confidence: 0,
-          details: {
-            sellerSignaturePresent: false,
-            buyerAcceptanceSignaturePresent: false,
-          },
-        };
-      }
-
-      const prompt = `Analyze this image of Page 5 from an OREA Form 100 (Agreement of Purchase and Sale).
-
-Your task is to find the "CONFIRMATION OF ACCEPTANCE" section.
+Your task is to find find the "CONFIRMATION OF ACCEPTANCE" section and determine if the buyer's acceptance signature is present.
 
 Look specifically for:
 - The heading "CONFIRMATION OF ACCEPTANCE" or similar text
@@ -556,20 +541,14 @@ Return ONLY valid JSON in this exact format:
 Rules:
 - Set hasConfirmationSignature to TRUE only if the BUYER'S acceptance signature is present
 - The seller's signature being present is informational but not required for hasConfirmationSignature
-- Be conservative - only mark as true if you clearly see a handwritten signature
 - If the section exists but is empty, return hasConfirmationSignature: false`;
-
-      console.log(`  Checking page 5 for Confirmation of Acceptance...`);
-      console.log(
-        `    Image size: ${(page5Image.base64.length / 1024).toFixed(1)} KB`
-      );
 
       const result = await model.generateContent([
         prompt,
         {
           inlineData: {
-            mimeType: "image/png",
-            data: page5Image.base64,
+            mimeType: "application/pdf",
+            data: pdfBuffer.toString("base64"),
           },
         },
       ]);

@@ -15,6 +15,7 @@ import ApsGuidedFormScreen from "../screens/ApsGuidedFormScreen";
 import ApsReviewScreen from "../screens/ApsReviewScreen";
 import CounterOfferFormScreen from "../screens/CounterOfferFormScreen";
 import OfferAcceptedScreen from "../screens/OfferAcceptedScreen";
+import CounterOfferSentScreen from "../screens/CounterOfferSentScreen";
 
 export type RootStackParamList = {
   Listings: undefined;
@@ -42,10 +43,16 @@ export type RootStackParamList = {
     offerId: string; 
     threadId?: string; 
     senderName?: string;
+    signingType: 'accept' | 'counter'; // Determines post-signing navigation
   };
   OfferAccepted: {
     offerId: string;
     threadId?: string; // Optional - will be fetched from offer if not provided
+    senderName?: string;
+  };
+  CounterOfferSent: {
+    offerId: string;
+    threadId?: string;
     senderName?: string;
   };
   ApsGuidedForm: {
@@ -175,6 +182,15 @@ export default function AppNavigator() {
           component={OfferAcceptedScreen}
           options={{
             title: "Offer Accepted",
+            headerShown: false,
+            gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="CounterOfferSent"
+          component={CounterOfferSentScreen}
+          options={{
+            title: "Counter-Offer Sent",
             headerShown: false,
             gestureEnabled: false,
           }}

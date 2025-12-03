@@ -26,6 +26,7 @@ export default function DropboxSignWebViewScreen() {
     offerId,
     threadId: passedThreadId,
     senderName: passedSenderName,
+    signingType,
   } = route.params;
   const [loading, setLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -57,6 +58,7 @@ export default function DropboxSignWebViewScreen() {
   console.log("Thread ID (from offer):", offer?.threadId);
   console.log("Effective Thread ID:", threadId);
   console.log("Sender Name:", senderName);
+  console.log("Signing Type:", signingType);
 
   // Set timeout for loading
   useEffect(() => {
@@ -184,14 +186,16 @@ export default function DropboxSignWebViewScreen() {
     console.log("🎉 handleSigningComplete called");
     console.log("Thread ID available:", threadId);
     console.log("Offer data:", offer ? "loaded" : "not loaded");
+    console.log("Signing type:", signingType);
 
     // Get the effective threadId - prefer passed value, then offer data
     const effectiveThreadId = threadId || offer?.threadId;
 
-    // Navigate to OfferAccepted screen with whatever data we have
-    // The OfferAccepted screen will fetch missing data if needed
+    // Navigate based on signing type
+    const destinationScreen =
+      signingType === "counter" ? "CounterOfferSent" : "OfferAccepted";
     console.log(
-      "✅ Navigating to OfferAccepted with threadId:",
+      `✅ Navigating to ${destinationScreen} with threadId:`,
       effectiveThreadId
     );
 
@@ -201,7 +205,7 @@ export default function DropboxSignWebViewScreen() {
         routes: [
           { name: "Listings" },
           {
-            name: "OfferAccepted",
+            name: destinationScreen,
             params: {
               offerId,
               threadId: effectiveThreadId,

@@ -219,6 +219,7 @@ export default function OfferDetailScreen() {
         offerId,
         threadId: offer?.threadId,
         senderName: (offer as any)?.thread?.sender?.name,
+        signingType: 'accept',
       });
     },
   });

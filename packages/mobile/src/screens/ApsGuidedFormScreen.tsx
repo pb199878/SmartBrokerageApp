@@ -127,6 +127,7 @@ export default function ApsGuidedFormScreen() {
         senderName:
           offerWithRelations?.thread?.sender?.name ||
           offerWithRelations?.thread?.sender?.email,
+        signingType: "accept",
       });
     } catch (error: any) {
       Alert.alert(

@@ -351,6 +351,7 @@ export class DocumentsService {
 
   /**
    * Detect if PDF is an OREA form and identify the type
+   * Uses robust multi-signal detection to avoid false positives
    */
   private detectOREAForm(textContent: string): OREAFormDetectionResult {
     const text = textContent.toLowerCase();
@@ -358,7 +359,7 @@ export class DocumentsService {
     let formType: string | null = null;
     let confidence = 0;
 
-    // Check for OREA identifiers
+    // Check for OREA identifiers (required for all OREA forms)
     const oreaKeywords = [
       "ontario real estate association",
       "orea",
@@ -366,54 +367,183 @@ export class DocumentsService {
       "trreb",
     ];
 
+    let hasOreaIdentifier = false;
     oreaKeywords.forEach((keyword) => {
       if (text.includes(keyword)) {
         identifiers.push(keyword);
         confidence += 20;
+        hasOreaIdentifier = true;
       }
     });
 
-    // Detect specific form types
-    // IMPORTANT: Check specific forms FIRST (by form number) before generic phrases
-    // Form 124, 120, etc. often contain "agreement of purchase and sale" in their text
-    // when referencing the original APS, so we need to check for them first
-
-    if (text.includes("form 124") || text.includes("notice of fulfillment")) {
-      // Form 124 - check FIRST before generic "agreement of purchase" check
-      formType = "Form 124 - Notice of Fulfillment or Waiver";
-      confidence += 30;
-      identifiers.push("Form 124 Fulfillment");
-    } else if (text.includes("form 123")) {
-      // Form 123 - prioritize form number over generic "waiver" text
-      formType = "Form 123 - Waiver";
-      confidence += 30;
-      identifiers.push("Form 123 Waiver");
-    } else if (
-      text.includes("form 120") ||
-      text.includes("amendment to agreement")
-    ) {
-      formType = "Form 120 - Amendment to Agreement";
-      confidence += 30;
-      identifiers.push("Form 120 Amendment");
-    } else if (text.includes("form 221") || text.includes("counter offer")) {
-      formType = "Form 221 - Counter Offer";
-      confidence += 30;
-      identifiers.push("Form 221 Counter Offer");
-    } else if (text.includes("form 122") || text.includes("mutual release")) {
-      formType = "Form 122 - Mutual Release";
-      confidence += 30;
-      identifiers.push("Form 122 Release");
-    } else if (
-      text.includes("form 100") ||
-      text.includes("agreement of purchase and sale")
-    ) {
-      // Form 100 - check LAST because many forms reference "agreement of purchase and sale"
-      formType = "Form 100 - Agreement of Purchase and Sale";
-      confidence += 30;
-      identifiers.push("Form 100 APS");
+    // If no OREA identifier found, it's not an OREA form
+    if (!hasOreaIdentifier) {
+      return {
+        isOREAForm: false,
+        formType: null,
+        confidence: 0,
+        identifiers: [],
+      };
     }
 
-    // Additional validation - check for required fields in APS
+    // Define form detection patterns with multiple required signals
+    // Each form requires: form number + additional unique patterns
+    const formPatterns = [
+      {
+        formType: "Form 124 - Notice of Fulfillment or Waiver",
+        // Require form number AND at least one additional pattern
+        requiredPatterns: [
+          ["form 124"], // Primary: explicit form number
+        ],
+        additionalPatterns: [
+          "notice of fulfillment",
+          "notice of fulfillment or waiver",
+          "fulfillment or waiver",
+          "condition fulfilled",
+          "conditions fulfilled",
+        ],
+        minAdditionalMatches: 1, // Need at least 1 additional pattern
+        baseConfidence: 30,
+      },
+      {
+        formType: "Form 123 - Waiver",
+        requiredPatterns: [
+          ["form 123"], // Primary: explicit form number
+        ],
+        additionalPatterns: [
+          "waiver of condition",
+          "waiver of conditions",
+          "condition waived",
+          "conditions waived",
+        ],
+        minAdditionalMatches: 1,
+        baseConfidence: 30,
+      },
+      {
+        formType: "Form 120 - Amendment to Agreement",
+        requiredPatterns: [
+          ["form 120"], // Primary: explicit form number
+        ],
+        additionalPatterns: [
+          "amendment to agreement",
+          "amendment to agreement of purchase and sale",
+          "amending the agreement",
+        ],
+        minAdditionalMatches: 1,
+        baseConfidence: 30,
+      },
+      {
+        formType: "Form 221 - Counter Offer",
+        requiredPatterns: [
+          ["form 221"], // Primary: explicit form number
+        ],
+        additionalPatterns: [
+          "counter offer",
+          "counter-offer",
+          "counteroffer",
+          "seller's counter offer",
+        ],
+        minAdditionalMatches: 1,
+        baseConfidence: 30,
+      },
+      {
+        formType: "Form 122 - Mutual Release",
+        requiredPatterns: [
+          ["form 122"], // Primary: explicit form number
+        ],
+        additionalPatterns: [
+          "mutual release",
+          "mutual release and discharge",
+          "release and discharge",
+        ],
+        minAdditionalMatches: 1,
+        baseConfidence: 30,
+      },
+      {
+        formType: "Form 100 - Agreement of Purchase and Sale",
+        // Form 100 is the most common, so it has more flexible detection
+        // Option 1: explicit form number (no additional patterns needed)
+        // Option 2: strong APS patterns (all 3 required) + at least 1 additional pattern
+        requiredPatterns: [
+          ["form 100"], // Option 1: explicit form number
+          ["agreement of purchase and sale", "purchase price", "deposit"], // Option 2: strong APS patterns (all 3 required)
+        ],
+        additionalPatterns: [
+          "buyer",
+          "seller",
+          "property",
+          "completion date",
+          "irrevocable",
+          "irrevocable until",
+          "acknowledgment and agreement",
+        ],
+        // If "form 100" is present, no additional patterns needed
+        // If only the 3-keyword pattern matches, require at least 1 additional pattern
+        minAdditionalMatches: 0, // Will be adjusted dynamically based on which required pattern matched
+        baseConfidence: 30,
+      },
+    ];
+
+    // Check each form pattern (in order of specificity - most specific first)
+    for (const pattern of formPatterns) {
+      let matchesRequired = false;
+      let matchedRequiredSet: string[] | null = null;
+      let additionalMatches = 0;
+
+      // Check if any required pattern set matches
+      for (const requiredSet of pattern.requiredPatterns) {
+        const allRequiredMatch = requiredSet.every((req) => text.includes(req));
+        if (allRequiredMatch) {
+          matchesRequired = true;
+          matchedRequiredSet = requiredSet;
+          break;
+        }
+      }
+
+      if (!matchesRequired) {
+        continue; // Skip this form type
+      }
+
+      // Count additional pattern matches
+      for (const additional of pattern.additionalPatterns) {
+        if (text.includes(additional)) {
+          additionalMatches++;
+        }
+      }
+
+      // Special handling for Form 100:
+      // - If "form 100" matched, no additional patterns needed
+      // - If the 3-keyword pattern matched, require at least 1 additional pattern
+      let minRequired = pattern.minAdditionalMatches;
+      if (
+        pattern.formType.includes("Form 100") &&
+        matchedRequiredSet &&
+        !matchedRequiredSet.includes("form 100")
+      ) {
+        // Matched the 3-keyword pattern (not "form 100"), require at least 1 additional
+        minRequired = 1;
+      }
+
+      // Check if we meet the minimum additional matches requirement
+      if (additionalMatches >= minRequired) {
+        formType = pattern.formType;
+        confidence += pattern.baseConfidence;
+
+        // Boost confidence for multiple additional matches
+        if (additionalMatches > minRequired) {
+          confidence += Math.min(additionalMatches * 5, 20);
+        }
+
+        // Add identifiers
+        const formNumber = pattern.formType.match(/Form \d+/)?.[0];
+        if (formNumber) {
+          identifiers.push(formNumber);
+        }
+        break; // Found a match, stop checking other forms
+      }
+    }
+
+    // Additional validation - check for required fields in Form 100
     if (formType && formType.includes("Form 100")) {
       const requiredFields = [
         "purchase price",
@@ -423,17 +553,26 @@ export class DocumentsService {
         "property",
       ];
 
+      let fieldsFound = 0;
       requiredFields.forEach((field) => {
         if (text.includes(field)) {
-          confidence += 2;
+          fieldsFound++;
         }
       });
+
+      // Boost confidence if multiple required fields are present
+      if (fieldsFound >= 3) {
+        confidence += 10;
+      } else if (fieldsFound >= 2) {
+        confidence += 5;
+      }
     }
 
     // Cap confidence at 100
     confidence = Math.min(confidence, 100);
 
-    const isOREAForm = identifiers.length > 0 && confidence >= 20;
+    // Require minimum confidence threshold to classify as OREA form
+    const isOREAForm = hasOreaIdentifier && confidence >= 30;
 
     return {
       isOREAForm,

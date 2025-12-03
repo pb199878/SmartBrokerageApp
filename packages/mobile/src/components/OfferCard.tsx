@@ -14,7 +14,11 @@ interface OfferCardProps {
   onViewDocument?: (offerId: string) => void;
   onContinueToSign?: (offerId: string) => void;
   onReviewAndSign?: (offerId: string) => void; // New: Navigate to APS review
-  onViewAccepted?: (offerId: string, threadId?: string, senderName?: string) => void; // Navigate to accepted offer screen
+  onViewAccepted?: (
+    offerId: string,
+    threadId?: string,
+    senderName?: string
+  ) => void; // Navigate to accepted offer screen
   listingId?: string; // For navigation context
   attachmentId?: string; // For APS document
 }
@@ -139,62 +143,62 @@ export default function OfferCard({
         {/* Offer details - clickable to navigate to details */}
         <TouchableOpacity onPress={handleCardPress} activeOpacity={0.7}>
           <View style={styles.details}>
-          <View style={styles.detailRow}>
-            <Text variant="labelLarge" style={styles.label}>
-              Purchase Price:
-            </Text>
-            <Text variant="titleMedium" style={styles.value}>
-              {formatCurrency(offer.price)}
-            </Text>
-          </View>
-
-          {offer.deposit !== null && offer.deposit !== undefined && (
             <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.label}>
-                Deposit:
+              <Text variant="labelLarge" style={styles.label}>
+                Purchase Price:
               </Text>
-              <Text variant="bodyMedium" style={styles.value}>
-                {formatCurrency(offer.deposit)}
+              <Text variant="titleMedium" style={styles.value}>
+                {formatCurrency(offer.price)}
               </Text>
             </View>
-          )}
 
-          {offer.closingDate && (
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.label}>
-                Closing Date:
-              </Text>
-              <Text variant="bodyMedium" style={styles.value}>
-                {formatDate(offer.closingDate)}
-              </Text>
-            </View>
-          )}
+            {offer.deposit !== null && offer.deposit !== undefined && (
+              <View style={styles.detailRow}>
+                <Text variant="labelMedium" style={styles.label}>
+                  Deposit:
+                </Text>
+                <Text variant="bodyMedium" style={styles.value}>
+                  {formatCurrency(offer.deposit)}
+                </Text>
+              </View>
+            )}
 
-          {offer.conditions && (
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.label}>
-                Conditions:
-              </Text>
-              <Text variant="bodyMedium" style={styles.value}>
-                {offer.conditions}
-              </Text>
-            </View>
-          )}
+            {offer.closingDate && (
+              <View style={styles.detailRow}>
+                <Text variant="labelMedium" style={styles.label}>
+                  Closing Date:
+                </Text>
+                <Text variant="bodyMedium" style={styles.value}>
+                  {formatDate(offer.closingDate)}
+                </Text>
+              </View>
+            )}
 
-          {offer.expiryDate && (
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.label}>
-                Expires:
-              </Text>
-              <Text
-                variant="bodyMedium"
-                style={[styles.value, isExpired && styles.expiredText]}
-              >
-                {formatDate(offer.expiryDate)}
-                {isExpired && " (Expired)"}
-              </Text>
-            </View>
-          )}
+            {offer.conditions && (
+              <View style={styles.detailRow}>
+                <Text variant="labelMedium" style={styles.label}>
+                  Conditions:
+                </Text>
+                <Text variant="bodyMedium" style={styles.value}>
+                  {offer.conditions}
+                </Text>
+              </View>
+            )}
+
+            {offer.expiryDate && (
+              <View style={styles.detailRow}>
+                <Text variant="labelMedium" style={styles.label}>
+                  Expires:
+                </Text>
+                <Text
+                  variant="bodyMedium"
+                  style={[styles.value, isExpired && styles.expiredText]}
+                >
+                  {formatDate(offer.expiryDate)}
+                  {isExpired && " (Expired)"}
+                </Text>
+              </View>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -286,7 +290,9 @@ export default function OfferCard({
             {onViewAccepted && (
               <Button
                 mode="contained"
-                onPress={() => onViewAccepted(offer.id, offer.threadId, undefined)}
+                onPress={() =>
+                  onViewAccepted(offer.id, offer.threadId, undefined)
+                }
                 style={styles.viewAcceptedButton}
                 buttonColor="#059669"
                 icon="check-circle"

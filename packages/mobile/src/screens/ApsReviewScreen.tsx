@@ -156,6 +156,7 @@ export default function ApsReviewScreen() {
         signUrl: result.signUrl,
         threadId: offer?.threadId,
         senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
+        signingType: "accept",
       });
     } catch (error: any) {
       console.error("Error preparing offer for signing:", error);

@@ -109,6 +109,7 @@ export default function CounterOfferFormScreen() {
         signUrl: data.signUrl,
         threadId: offer?.threadId,
         senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
+        signingType: "counter",
       });
     },
     onError: (error: any) => {

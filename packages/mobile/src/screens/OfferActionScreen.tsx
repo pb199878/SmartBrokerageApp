@@ -41,6 +41,7 @@ export default function OfferActionScreen() {
         offerId: offerId,
         threadId: offer?.threadId,
         senderName: offer?.thread?.sender?.name || offer?.thread?.sender?.email,
+        signingType: 'accept',
       });
     },
     onError: (error: any) => {

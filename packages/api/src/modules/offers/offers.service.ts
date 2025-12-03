@@ -24,6 +24,138 @@ export class OffersService {
     private configService: ConfigService
   ) {}
 
+  // =============================================================================
+  // OFFER LIFECYCLE HELPERS
+  // =============================================================================
+
+  /**
+   * Statuses that indicate an active offer that can be superseded by a new offer
+   * Does NOT include CONDITIONALLY_ACCEPTED or ACCEPTED (which lock the thread)
+   */
+  private readonly SUPERSEDABLE_STATUSES = [
+    OfferStatus.PENDING_REVIEW,
+    OfferStatus.AWAITING_SELLER_SIGNATURE,
+    OfferStatus.AWAITING_BUYER_SIGNATURE,
+    OfferStatus.COUNTERED,
+  ];
+
+  /**
+   * Statuses that lock the listing+buyer pair from making new offers
+   * Once an offer reaches these statuses, no new offers are allowed
+   */
+  private readonly LOCKING_STATUSES = [
+    OfferStatus.CONDITIONALLY_ACCEPTED,
+    OfferStatus.ACCEPTED,
+  ];
+
+  /**
+   * Check if there's a conditionally accepted or fully accepted offer
+   * between this listing and buyer. If so, no new offers are allowed.
+   *
+   * @param listingId - The listing ID
+   * @param senderId - The sender (buyer agent) ID
+   * @returns The locking offer if found, null otherwise
+   */
+  private async findLockingOffer(
+    listingId: string,
+    senderId: string
+  ): Promise<any | null> {
+    const lockingOffer = await this.prisma.offer.findFirst({
+      where: {
+        thread: {
+          listingId,
+          senderId,
+        },
+        status: {
+          in: this.LOCKING_STATUSES,
+        },
+      },
+      include: {
+        thread: {
+          include: {
+            listing: true,
+            sender: true,
+          },
+        },
+      },
+    });
+
+    return lockingOffer;
+  }
+
+  /**
+   * Supersede all active offers between a listing and buyer.
+   * Called when a new offer is received or a counter-offer is created.
+   *
+   * @param listingId - The listing ID
+   * @param senderId - The sender (buyer agent) ID
+   * @param reason - The reason for superseding
+   * @returns Count of offers superseded
+   */
+  private async supersedeActiveOffers(
+    listingId: string,
+    senderId: string,
+    reason: string
+  ): Promise<number> {
+    // Find all active offers for this listing+buyer pair
+    const activeOffers = await this.prisma.offer.findMany({
+      where: {
+        thread: {
+          listingId,
+          senderId,
+        },
+        status: {
+          in: this.SUPERSEDABLE_STATUSES,
+        },
+      },
+      include: {
+        thread: true,
+      },
+    });
+
+    if (activeOffers.length === 0) {
+      return 0;
+    }
+
+    console.log(
+      `📝 Superseding ${activeOffers.length} active offer(s) for listing ${listingId} / sender ${senderId}`
+    );
+
+    // Supersede each offer and clear activeOfferId from threads
+    for (const offer of activeOffers) {
+      const offerType = offer.isCounterOffer ? "counter-offer" : "offer";
+      console.log(
+        `   Superseding ${offerType} ${offer.id} (status: ${offer.status})`
+      );
+
+      await this.prisma.offer.update({
+        where: { id: offer.id },
+        data: {
+          status: OfferStatus.SUPERSEDED,
+          declineReason: reason,
+        },
+      });
+
+      // Clear activeOfferId from thread if this was the active one
+      const thread = await this.prisma.thread.findUnique({
+        where: { id: offer.threadId },
+      });
+      if (thread?.activeOfferId === offer.id) {
+        await this.prisma.thread.update({
+          where: { id: offer.threadId },
+          data: { activeOfferId: null },
+        });
+      }
+    }
+
+    console.log(`✅ Superseded ${activeOffers.length} offer(s)`);
+    return activeOffers.length;
+  }
+
+  // =============================================================================
+  // OFFER CREATION
+  // =============================================================================
+
   /**
    * Create offer from classified message with attachments
    * Automatically called when message is classified as NEW_OFFER or UPDATED_OFFER
@@ -60,125 +192,72 @@ export class OffersService {
       return existingOffer;
     }
 
-    // Check if there are any active offers/counter-offers on THIS LISTING for this buyer
-    // Business rule: When buyer submits a new offer, it supersedes ALL previous offers and counter-offers
-
-    // First, let's see ALL offers for this listing/buyer combo (for debugging)
-    console.log(
-      `🔍 Checking for existing offers on listing ${message.thread.listingId} from sender ${message.thread.senderId}`
-    );
-
-    const allOffersOnListing = await this.prisma.offer.findMany({
-      where: {
-        thread: {
-          listingId: message.thread.listingId,
-          senderId: message.thread.senderId,
-        },
-      },
-      include: {
-        thread: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const listingId = message.thread.listingId;
+    const senderId = message.thread.senderId;
 
     console.log(
-      `📊 Total offers found for this listing/buyer: ${allOffersOnListing.length}`
+      `🔍 Checking offer eligibility for listing ${listingId} from sender ${senderId}`
     );
-    allOffersOnListing.forEach((offer) => {
+
+    // =============================================================================
+    // BUSINESS RULE: Check for locking offer (CONDITIONALLY_ACCEPTED or ACCEPTED)
+    // Once an offer is conditionally/fully accepted, no new offers are allowed
+    // =============================================================================
+    const lockingOffer = await this.findLockingOffer(listingId, senderId);
+
+    if (lockingOffer) {
       console.log(
-        `   - Offer ${offer.id}: status=${offer.status}, isCounterOffer=${offer.isCounterOffer}, threadId=${offer.threadId}`
+        `🔒 Cannot create new offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
       );
-    });
-
-    // Now find the ones we should supersede
-    const activeStatuses = [
-      OfferStatus.PENDING_REVIEW,
-      OfferStatus.AWAITING_SELLER_SIGNATURE,
-      OfferStatus.AWAITING_BUYER_SIGNATURE,
-      OfferStatus.COUNTERED,
-    ];
-    const existingActiveOffersOnListing = allOffersOnListing.filter((offer) =>
-      activeStatuses.includes(offer.status as any)
-    );
-
-    console.log(
-      `🔍 Found ${existingActiveOffersOnListing.length} active offer(s) that should be superseded`
-    );
-    if (existingActiveOffersOnListing.length > 0) {
-      existingActiveOffersOnListing.forEach((offer) => {
-        console.log(
-          `   ✓ Will supersede: ${offer.id} (status=${offer.status}, isCounterOffer=${offer.isCounterOffer})`
-        );
-      });
+      throw new BadRequestException(
+        `Cannot submit new offer: There is already a ${lockingOffer.status
+          .toLowerCase()
+          .replace("_", " ")} offer for this property. ` +
+          `No further offers are allowed until the current transaction is completed or cancelled.`
+      );
     }
 
-    if (existingActiveOffersOnListing.length > 0) {
-      console.log(
-        `⚠️  Buyer has ${existingActiveOffersOnListing.length} active offer(s) on this listing. Handling...`
-      );
+    // =============================================================================
+    // BUSINESS RULE: Check if this is an UPDATED_OFFER/AMENDMENT to an existing offer
+    // =============================================================================
+    if (
+      message.subCategory === "UPDATED_OFFER" ||
+      message.subCategory === "AMENDMENT"
+    ) {
+      // Find most recent buyer offer (not counter-offer) that can be updated
+      const existingBuyerOffer = await this.prisma.offer.findFirst({
+        where: {
+          thread: {
+            listingId,
+            senderId,
+          },
+          isCounterOffer: false,
+          status: {
+            in: this.SUPERSEDABLE_STATUSES,
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
-      // Handle based on message sub-category
-      if (
-        message.subCategory === "UPDATED_OFFER" ||
-        message.subCategory === "AMENDMENT"
-      ) {
-        // This is an update/amendment to existing offer - update the most recent buyer offer (not counter-offer)
-        const mostRecentBuyerOffer = existingActiveOffersOnListing.find(
-          (o) => !o.isCounterOffer
-        );
-        if (mostRecentBuyerOffer) {
-          console.log(
-            `Treating as update to existing offer ${mostRecentBuyerOffer.id}`
-          );
-          return await this.updateExistingOffer(
-            mostRecentBuyerOffer.id,
-            messageId
-          );
-        }
-      } else {
-        // New independent offer - supersede ALL old active offers (both buyer offers AND seller counter-offers)
+      if (existingBuyerOffer) {
         console.log(
-          `📝 Buyer submitted a completely new offer. Superseding ALL previous offers and counter-offers...`
+          `📝 Treating as update to existing offer ${existingBuyerOffer.id}`
         );
-
-        for (const existingOffer of existingActiveOffersOnListing) {
-          const offerType = existingOffer.isCounterOffer
-            ? "counter-offer"
-            : "offer";
-          console.log(
-            `   Superseding ${offerType} ${existingOffer.id} (status: ${existingOffer.status})`
-          );
-
-          await this.prisma.offer.update({
-            where: { id: existingOffer.id },
-            data: {
-              status: OfferStatus.SUPERSEDED,
-              declineReason:
-                "Buyer submitted a new offer, previous offer/counter-offer automatically superseded",
-            },
-          });
-
-          // Clear activeOfferId from thread if this was the active one
-          if (existingOffer.threadId) {
-            const thread = await this.prisma.thread.findUnique({
-              where: { id: existingOffer.threadId },
-            });
-            if (thread?.activeOfferId === existingOffer.id) {
-              await this.prisma.thread.update({
-                where: { id: existingOffer.threadId },
-                data: { activeOfferId: null },
-              });
-            }
-          }
-        }
-
-        console.log(
-          `✅ Superseded ${existingActiveOffersOnListing.length} old offer(s)/counter-offer(s), proceeding with new offer`
-        );
+        return await this.updateExistingOffer(existingBuyerOffer.id, messageId);
       }
     }
+
+    // =============================================================================
+    // BUSINESS RULE: Supersede ALL active offers before creating new one
+    // New offer from buyer supersedes all previous offers and counter-offers
+    // =============================================================================
+    await this.supersedeActiveOffers(
+      listingId,
+      senderId,
+      "Buyer submitted a new offer, previous offer/counter-offer automatically superseded"
+    );
 
     // Extract offer details from document analysis
     // Find the primary offer document (highest relevance score)
@@ -514,6 +593,13 @@ export class OffersService {
     return merged;
   }
 
+  /**
+   * Prepare offer for signing with guided intake workflow
+   *
+   * BUSINESS RULES:
+   * - Cannot accept if there's already a CONDITIONALLY_ACCEPTED or ACCEPTED offer
+   * - Accepting an offer supersedes ALL other active offers between parties
+   */
   async prepareOfferForSigning(
     offerId: string,
     intake: ApsIntake,
@@ -522,6 +608,27 @@ export class OffersService {
     console.log(`📝 Preparing offer ${offerId} for signing with guided intake`);
 
     const offer = await this.getOffer(offerId);
+
+    const listingId = offer.thread.listingId;
+    const senderId = offer.thread.senderId;
+
+    // =============================================================================
+    // BUSINESS RULE: Check for locking offer (CONDITIONALLY_ACCEPTED or ACCEPTED)
+    // Cannot accept a new offer if there's already one accepted
+    // =============================================================================
+    const lockingOffer = await this.findLockingOffer(listingId, senderId);
+
+    if (lockingOffer && lockingOffer.id !== offerId) {
+      console.log(
+        `🔒 Cannot accept offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
+      );
+      throw new BadRequestException(
+        `Cannot accept offer: There is already a ${lockingOffer.status
+          .toLowerCase()
+          .replace("_", " ")} offer for this property. ` +
+          `No further acceptances are allowed until the current transaction is completed or cancelled.`
+      );
+    }
 
     // Merge comprehensive extracted data with seller's intake
     const completeIntake = this.mergeExtractedDataWithIntake(offer, intake);
@@ -540,6 +647,39 @@ export class OffersService {
         data: { status: OfferStatus.EXPIRED },
       });
       throw new Error("Offer has expired");
+    }
+
+    // =============================================================================
+    // BUSINESS RULE: Supersede ALL other active offers before accepting this one
+    // =============================================================================
+    const activeOffers = await this.prisma.offer.findMany({
+      where: {
+        thread: {
+          listingId,
+          senderId,
+        },
+        status: {
+          in: this.SUPERSEDABLE_STATUSES,
+        },
+        id: {
+          not: offerId, // Don't supersede the offer being accepted
+        },
+      },
+    });
+
+    if (activeOffers.length > 0) {
+      console.log(
+        `📝 Superseding ${activeOffers.length} other active offer(s) before accepting offer`
+      );
+      for (const activeOffer of activeOffers) {
+        await this.prisma.offer.update({
+          where: { id: activeOffer.id },
+          data: {
+            status: OfferStatus.SUPERSEDED,
+            declineReason: "Superseded by seller accepting another offer",
+          },
+        });
+      }
     }
 
     // Get the original offer document from Supabase
@@ -779,13 +919,18 @@ export class OffersService {
 
   /**
    * Create counter-offer using Dropbox Sign template
+   *
+   * BUSINESS RULES:
+   * - Cannot counter if there's already a CONDITIONALLY_ACCEPTED or ACCEPTED offer
+   * - Creating a counter-offer supersedes ALL other active offers between parties
+   * - A counter-offer is technically a new offer from the seller
    */
   async counterOffer(
     dto: CounterOfferDto
   ): Promise<{ signUrl: string; expiresAt: number }> {
     console.log(`🔄 Creating counter-offer for original offer ${dto.offerId}`);
 
-    // 1. Validate original offer
+    // 1. Validate original offer exists
     const originalOffer = await this.prisma.offer.findUnique({
       where: { id: dto.offerId },
       include: {
@@ -811,7 +956,28 @@ export class OffersService {
       throw new BadRequestException(`Offer ${dto.offerId} not found`);
     }
 
-    // Validate offer can be countered
+    const listingId = originalOffer.thread.listingId;
+    const senderId = originalOffer.thread.senderId;
+
+    // =============================================================================
+    // BUSINESS RULE: Check for locking offer (CONDITIONALLY_ACCEPTED or ACCEPTED)
+    // Once an offer is conditionally/fully accepted, no counter-offers are allowed
+    // =============================================================================
+    const lockingOffer = await this.findLockingOffer(listingId, senderId);
+
+    if (lockingOffer) {
+      console.log(
+        `🔒 Cannot create counter-offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
+      );
+      throw new BadRequestException(
+        `Cannot create counter-offer: There is already a ${lockingOffer.status
+          .toLowerCase()
+          .replace("_", " ")} offer for this property. ` +
+          `No further offers or counter-offers are allowed until the current transaction is completed or cancelled.`
+      );
+    }
+
+    // Validate offer can be countered (must be in a state where seller can respond)
     if (
       originalOffer.status !== OfferStatus.PENDING_REVIEW &&
       originalOffer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
@@ -820,6 +986,10 @@ export class OffersService {
         `Offer cannot be countered. Current status: ${originalOffer.status}`
       );
     }
+
+    // Note: Superseding of other active offers happens when counter-offer is SENT
+    // (in sendCounterOfferToAgent), not at creation time. This ensures that if seller
+    // abandons the signing process, other offers remain active.
 
     // Check if offer has extracted data
     const hasExtractedData = originalOffer.messages?.some((msg) =>
@@ -906,8 +1076,8 @@ export class OffersService {
         `📝 Created Dropbox Sign request: ${signatureResponse.signatureRequestId}`
       );
 
-      // Note: Original offer status will be updated to COUNTERED only after
-      // seller successfully signs the counter-offer (in sendCounterOfferToAgent)
+      // Note: Original offer will be superseded when the counter-offer is sent
+      // (in sendCounterOfferToAgent) - only one active offer allowed at a time
 
       console.log(
         `✅ Counter-offer created successfully. Signature URL ready for seller.`
@@ -1147,16 +1317,18 @@ export class OffersService {
   private async handleSignatureDeclined(offer: any): Promise<void> {
     console.log(`❌ Signature declined for offer ${offer.id}`);
 
-    // If this is a counter-offer that was declined, delete it and don't mark original as COUNTERED
+    // If this is a counter-offer that was declined during signing, delete it
+    // The original offer was NOT superseded yet (that happens in sendCounterOfferToAgent after signing)
+    // So the original offer remains active and seller can take other actions on it
     if (offer.isCounterOffer) {
       console.log(
-        `🔄 Counter-offer declined, deleting counter-offer record ${offer.id}`
+        `🔄 Counter-offer declined during signing, deleting counter-offer record ${offer.id}`
       );
       await this.prisma.offer.delete({
         where: { id: offer.id },
       });
       console.log(
-        `✅ Counter-offer deleted. Original offer ${offer.originalOfferId} remains unchanged.`
+        `✅ Counter-offer deleted. Original offer ${offer.originalOfferId} remains active.`
       );
       return;
     }
@@ -1212,10 +1384,46 @@ export class OffersService {
     const buyerAgentEmail = counterOffer.thread.sender.email;
     const buyerAgentName = counterOffer.thread.sender.name || "Buyer Agent";
     const listingAddress = counterOffer.thread.listing.address;
+    const listingId = counterOffer.thread.listingId;
+    const senderId = counterOffer.thread.senderId;
 
     console.log(
       `📧 Preparing to send counter-offer to buyer agent: ${buyerAgentName} <${buyerAgentEmail}>`
     );
+
+    // =============================================================================
+    // BUSINESS RULE: Supersede ALL other active offers when counter-offer is sent
+    // This is when the counter-offer becomes "real" - after seller has signed
+    // =============================================================================
+    const activeOffers = await this.prisma.offer.findMany({
+      where: {
+        thread: {
+          listingId,
+          senderId,
+        },
+        status: {
+          in: this.SUPERSEDABLE_STATUSES,
+        },
+        id: {
+          not: offerId, // Don't supersede the counter-offer itself
+        },
+      },
+    });
+
+    if (activeOffers.length > 0) {
+      console.log(
+        `📝 Superseding ${activeOffers.length} other active offer(s) on counter-offer send`
+      );
+      for (const activeOffer of activeOffers) {
+        await this.prisma.offer.update({
+          where: { id: activeOffer.id },
+          data: {
+            status: OfferStatus.SUPERSEDED,
+            declineReason: "Superseded by seller's counter-offer",
+          },
+        });
+      }
+    }
 
     try {
       // 1. Download signed PDF from Dropbox Sign
@@ -1385,18 +1593,8 @@ ${counterOffer.sellerName || "The Seller"}`;
         data: { lastMessageAt: new Date() },
       });
 
-      // 9. Update original offer status to COUNTERED (only after counter-offer is successfully signed and sent)
-      if (counterOffer.originalOfferId) {
-        await this.prisma.offer.update({
-          where: { id: counterOffer.originalOfferId },
-          data: {
-            status: OfferStatus.COUNTERED,
-          },
-        });
-        console.log(
-          `✅ Original offer ${counterOffer.originalOfferId} marked as COUNTERED`
-        );
-      }
+      // Note: Original offer was already superseded earlier in this method
+      // (only one active offer allowed between buyer and seller)
 
       console.log(
         `✅ Counter-offer ${offerId} sent successfully to ${buyerAgentName} <${buyerAgentEmail}>`
@@ -1420,7 +1618,7 @@ ${counterOffer.sellerName || "The Seller"}`;
    * Process counter-offer acceptance from buyer
    * Called when we detect an OREA-100 from a sender who has an active counter-offer
    * Validates the form matches the counter-offer terms and has the confirmation signature
-   * 
+   *
    * @param counterOfferId - The counter-offer ID to accept
    * @param extractedData - Extracted data from the OREA-100 form
    * @param hasConfirmationSignature - Whether the confirmation of acceptance signature was detected
@@ -1488,9 +1686,14 @@ ${counterOffer.sellerName || "The Seller"}`;
     if (extractedData) {
       // Check purchase price
       const counterOfferPrice = editedFields.purchasePrice;
-      const formPrice = extractedData.price_and_deposit?.purchase_price?.numeric;
+      const formPrice =
+        extractedData.price_and_deposit?.purchase_price?.numeric;
 
-      if (counterOfferPrice && formPrice && Math.abs(counterOfferPrice - formPrice) > 1) {
+      if (
+        counterOfferPrice &&
+        formPrice &&
+        Math.abs(counterOfferPrice - formPrice) > 1
+      ) {
         discrepancies.push(
           `Purchase price mismatch: Counter-offer=$${counterOfferPrice.toLocaleString()}, Form=$${formPrice.toLocaleString()}`
         );
@@ -1500,7 +1703,11 @@ ${counterOffer.sellerName || "The Seller"}`;
       const counterOfferDeposit = editedFields.deposit;
       const formDeposit = extractedData.price_and_deposit?.deposit?.numeric;
 
-      if (counterOfferDeposit && formDeposit && Math.abs(counterOfferDeposit - formDeposit) > 1) {
+      if (
+        counterOfferDeposit &&
+        formDeposit &&
+        Math.abs(counterOfferDeposit - formDeposit) > 1
+      ) {
         discrepancies.push(
           `Deposit mismatch: Counter-offer=$${counterOfferDeposit.toLocaleString()}, Form=$${formDeposit.toLocaleString()}`
         );
@@ -1514,7 +1721,8 @@ ${counterOffer.sellerName || "The Seller"}`;
           const formDate = new Date(formDateStr);
           // Allow 1 day tolerance for date comparisons
           const daysDiff = Math.abs(
-            (counterOfferDate.getTime() - formDate.getTime()) / (1000 * 60 * 60 * 24)
+            (counterOfferDate.getTime() - formDate.getTime()) /
+              (1000 * 60 * 60 * 24)
           );
           if (daysDiff > 1) {
             discrepancies.push(
@@ -1527,11 +1735,16 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     // Log discrepancies but don't block acceptance (buyer may have made minor corrections)
     if (discrepancies.length > 0) {
-      console.log(`⚠️  Discrepancies found between counter-offer and acceptance form:`);
+      console.log(
+        `⚠️  Discrepancies found between counter-offer and acceptance form:`
+      );
       discrepancies.forEach((d) => console.log(`   - ${d}`));
       // For now, we'll proceed but log the discrepancies
       // In the future, you might want to flag these for review
     }
+
+    // Note: Other active offers were already superseded when the counter-offer was sent
+    // (in sendCounterOfferToAgent). No need to supersede again here.
 
     // 4. Update the counter-offer status to ACCEPTED
     const updatedOffer = await this.prisma.offer.update({
@@ -1545,21 +1758,7 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     console.log(`✅ Counter-offer ${counterOfferId} accepted by buyer`);
 
-    // 5. Update the original offer status (if it exists)
-    if (counterOffer.originalOfferId) {
-      await this.prisma.offer.update({
-        where: { id: counterOffer.originalOfferId },
-        data: {
-          status: OfferStatus.SUPERSEDED,
-          declineReason: "Superseded by accepted counter-offer",
-        },
-      });
-      console.log(
-        `✅ Original offer ${counterOffer.originalOfferId} marked as superseded`
-      );
-    }
-
-    // 6. Update the message with the offer ID
+    // 5. Update the message with the offer ID
     await this.prisma.message.update({
       where: { id: messageId },
       data: {
@@ -1568,7 +1767,7 @@ ${counterOffer.sellerName || "The Seller"}`;
       },
     });
 
-    // 7. Update thread's active offer
+    // 6. Update thread's active offer
     await this.prisma.thread.update({
       where: { id: counterOffer.threadId },
       data: {
@@ -1633,8 +1832,18 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     try {
       const monthNames = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
       ];
 
       let monthNum: string;

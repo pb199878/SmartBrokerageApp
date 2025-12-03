@@ -203,6 +203,7 @@ export default function ChatScreen() {
       navigation.navigate("DropboxSign", {
         signUrl: data.signUrl,
         offerId: offerId,
+        signingType: 'accept',
       });
     },
     onError: (error: any) => {

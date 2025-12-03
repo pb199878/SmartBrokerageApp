@@ -17,7 +17,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offersApi, attachmentsApi } from "../services/api";
 import type { RootStackParamList } from "../navigation/AppNavigator";
-import { OfferStatus, OfferConditionStatus } from "@smart-brokerage/shared";
+import { OfferStatus, OfferConditionStatus, ApsParseResult } from "@smart-brokerage/shared";
 import { Ionicons } from "@expo/vector-icons";
 
 type OfferDetailRouteProp = RouteProp<RootStackParamList, "OfferDetail">;
@@ -120,6 +120,81 @@ function getConditionStatusLabel(status: string): string {
   }
 }
 
+// Helper function to extract buyer details from offer's document analysis
+// Prioritizes comprehensive formFieldsExtracted data, falls back to legacy extractedData
+function extractBuyerDetailsFromOffer(offer: any) {
+  // Look for document analysis in the offer's messages
+  const attachment = offer?.messages
+    ?.flatMap((msg: any) => msg.attachments || [])
+    ?.find(
+      (att: any) =>
+        att.documentAnalysis?.formFieldsExtracted ||
+        att.documentAnalysis?.extractedData
+    );
+
+  const documentAnalysis = attachment?.documentAnalysis;
+
+  if (!documentAnalysis) {
+    return {
+      buyerName: undefined,
+      buyerLawyer: undefined,
+      buyerLawyerEmail: undefined,
+      buyerLawyerAddress: undefined,
+      inclusions: undefined,
+      exclusions: undefined,
+      depositDue: undefined,
+      possessionDate: undefined,
+      rentalItems: undefined,
+    };
+  }
+
+  // Try comprehensive formFieldsExtracted first (ApsParseResult from Gemini/AcroForm)
+  if (documentAnalysis.formFieldsExtracted) {
+    const apsData = documentAnalysis.formFieldsExtracted as ApsParseResult;
+
+    return {
+      buyerName: apsData.buyer_full_name,
+      buyerLawyer: apsData.acknowledgment?.buyer?.lawyer?.name,
+      buyerLawyerEmail: apsData.acknowledgment?.buyer?.lawyer?.email,
+      buyerLawyerAddress: apsData.acknowledgment?.buyer?.lawyer?.address,
+      inclusions: apsData.inclusions_exclusions?.chattels_included?.join(", "),
+      exclusions: apsData.inclusions_exclusions?.fixtures_excluded?.join(", "),
+      depositDue: apsData.price_and_deposit?.deposit?.timing,
+      possessionDate: undefined, // Not in current ApsParseResult schema
+      rentalItems: apsData.inclusions_exclusions?.rental_items?.join(", "),
+    };
+  }
+
+  // Fallback to legacy extractedData
+  if (documentAnalysis.extractedData) {
+    const data = documentAnalysis.extractedData;
+
+    return {
+      buyerName: data.buyerName,
+      buyerLawyer: data.buyerLawyer,
+      buyerLawyerEmail: data.buyerLawyerEmail,
+      buyerLawyerAddress: data.buyerLawyerAddress,
+      inclusions: data.inclusions,
+      exclusions: data.exclusions,
+      depositDue: data.depositDue,
+      possessionDate: data.possessionDate,
+      rentalItems: undefined, // Not in legacy format
+    };
+  }
+
+  return {
+    buyerName: undefined,
+    buyerLawyer: undefined,
+    buyerLawyerEmail: undefined,
+    buyerLawyerAddress: undefined,
+    inclusions: undefined,
+    exclusions: undefined,
+    depositDue: undefined,
+    possessionDate: undefined,
+    rentalItems: undefined,
+  };
+}
+
 export default function OfferDetailScreen() {
   const route = useRoute<OfferDetailRouteProp>();
   const navigation = useNavigation<NavigationProp>();
@@ -181,14 +256,34 @@ export default function OfferDetailScreen() {
   const handleAcceptOffer = () => {
     if (!offer) return;
     const effectiveListingId = listingId || offerWithThread?.thread?.listingId;
-    if (effectiveListingId) {
-      navigation.navigate("ApsGuidedForm", {
-        offerId: offer.id,
-        listingId: effectiveListingId,
-        sellerEmail: "",
-        sellerName: "",
-      });
+    if (!effectiveListingId) {
+      console.error("No listingId available for APS review");
+      return;
     }
+
+    // Extract buyer details from document analysis (same logic as ChatScreen)
+    const extractedDetails = extractBuyerDetailsFromOffer(offer);
+
+              // TODO: Get seller email/name from user context or listing
+              // For now, use a valid placeholder email - ApsReviewScreen will validate it's not empty
+              // In production, this should come from authenticated user context
+              navigation.navigate("ApsReview", {
+                offerId: offer.id,
+                listingId: effectiveListingId,
+                sellerEmail: "seller@example.com", // TODO: Get from user context/auth - required for signing
+                sellerName: "Seller Name", // TODO: Get from user context/auth - required for signing
+                buyerDetails: {
+        purchasePrice: offer.price || 0,
+        deposit: offer.deposit || 0,
+        depositDue: extractedDetails.depositDue || "Within 24 hours of acceptance",
+        closingDate: safeParseDate(offer.closingDate),
+        possessionDate: safeParseDate(extractedDetails.possessionDate || offer.closingDate),
+        conditions: offer.conditions || "None",
+        inclusions: extractedDetails.inclusions || "Not specified",
+        buyerName: extractedDetails.buyerName || "Not specified",
+        buyerLawyer: extractedDetails.buyerLawyer || "Not specified",
+      },
+    });
   };
 
   const handleDeclineOffer = () => {
@@ -554,18 +649,39 @@ export default function OfferDetailScreen() {
             )}
 
             {isAwaitingSignature && (
-              <Button
-                mode="contained"
-                onPress={handleContinueToSign}
-                style={styles.primaryButton}
-                contentStyle={styles.buttonContent}
-                labelStyle={styles.buttonLabel}
-                icon="draw"
-                buttonColor="#3B82F6"
-                loading={continueToSignMutation.isPending}
-              >
-                Continue to Sign
-              </Button>
+              <>
+                <Button
+                  mode="contained"
+                  onPress={handleContinueToSign}
+                  style={styles.primaryButton}
+                  contentStyle={styles.buttonContent}
+                  labelStyle={styles.buttonLabel}
+                  icon="draw"
+                  buttonColor="#3B82F6"
+                  loading={continueToSignMutation.isPending}
+                >
+                  Continue to Sign
+                </Button>
+                <View style={styles.secondaryButtonsRow}>
+                  <Button
+                    mode="outlined"
+                    onPress={handleCounterOffer}
+                    style={styles.halfButton}
+                    contentStyle={styles.smallButtonContent}
+                  >
+                    Counter Instead
+                  </Button>
+                  <Button
+                    mode="text"
+                    onPress={handleDeclineOffer}
+                    style={styles.halfButton}
+                    contentStyle={styles.smallButtonContent}
+                    textColor="#DC2626"
+                  >
+                    Cancel
+                  </Button>
+                </View>
+              </>
             )}
           </>
         )}

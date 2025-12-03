@@ -120,13 +120,33 @@ export default function ApsReviewScreen() {
   };
 
   const handleProceedToSign = async () => {
+    // Validate seller email is provided
+    if (!sellerEmail || sellerEmail.trim() === "") {
+      Alert.alert(
+        "Seller Email Required",
+        "Please provide a valid seller email address to proceed with signing. This will be used for the signature request.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    // Validate seller name is provided
+    if (!sellerName || sellerName.trim() === "") {
+      Alert.alert(
+        "Seller Name Required",
+        "Please provide a valid seller name to proceed with signing.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
     try {
       const result = await prepareMutation.mutateAsync({
         offerId,
         intake: sellerData,
         seller: {
-          email: sellerEmail,
-          name: sellerName || "Seller",
+          email: sellerEmail.trim(),
+          name: sellerName.trim(),
         },
       });
 

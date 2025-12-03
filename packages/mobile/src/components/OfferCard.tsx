@@ -103,28 +103,42 @@ export default function OfferCard({
   const isDeclined = offer.status === OfferStatus.DECLINED;
   const isSuperseded = offer.status === OfferStatus.SUPERSEDED;
 
+  const handleCardPress = () => {
+    // Navigate to offer details screen
+    if (listingId) {
+      navigation.navigate("OfferDetail", {
+        offerId: offer.id,
+        listingId,
+      });
+    }
+  };
+
+  // Wrap non-interactive content in TouchableOpacity, but let buttons handle their own presses
   return (
     <Card style={styles.card} mode="elevated">
       <Card.Content>
-        {/* Header with status */}
-        <View style={styles.header}>
-          <Text variant="titleMedium" style={styles.title}>
-            💼 Offer Received
-          </Text>
-          <Chip
-            mode="flat"
-            style={[
-              styles.statusChip,
-              { backgroundColor: getStatusColor(offer.status) },
-            ]}
-            textStyle={styles.statusText}
-          >
-            {getStatusLabel(offer.status)}
-          </Chip>
-        </View>
+        {/* Header with status - clickable to navigate to details */}
+        <TouchableOpacity onPress={handleCardPress} activeOpacity={0.7}>
+          <View style={styles.header}>
+            <Text variant="titleMedium" style={styles.title}>
+              💼 Offer Received
+            </Text>
+            <Chip
+              mode="flat"
+              style={[
+                styles.statusChip,
+                { backgroundColor: getStatusColor(offer.status) },
+              ]}
+              textStyle={styles.statusText}
+            >
+              {getStatusLabel(offer.status)}
+            </Chip>
+          </View>
+        </TouchableOpacity>
 
-        {/* Offer details */}
-        <View style={styles.details}>
+        {/* Offer details - clickable to navigate to details */}
+        <TouchableOpacity onPress={handleCardPress} activeOpacity={0.7}>
+          <View style={styles.details}>
           <View style={styles.detailRow}>
             <Text variant="labelLarge" style={styles.label}>
               Purchase Price:
@@ -181,7 +195,8 @@ export default function OfferCard({
               </Text>
             </View>
           )}
-        </View>
+          </View>
+        </TouchableOpacity>
 
         {/* Action buttons */}
         {!isExpired && !isAccepted && !isDeclined && !isSuperseded && (

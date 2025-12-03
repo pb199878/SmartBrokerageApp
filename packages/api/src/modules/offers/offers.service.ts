@@ -1417,6 +1417,248 @@ ${counterOffer.sellerName || "The Seller"}`;
   }
 
   /**
+   * Process counter-offer acceptance from buyer
+   * Called when we detect an OREA-100 from a sender who has an active counter-offer
+   * Validates the form matches the counter-offer terms and has the confirmation signature
+   * 
+   * @param counterOfferId - The counter-offer ID to accept
+   * @param extractedData - Extracted data from the OREA-100 form
+   * @param hasConfirmationSignature - Whether the confirmation of acceptance signature was detected
+   * @param messageId - The message ID containing the acceptance
+   */
+  async processCounterOfferAcceptance(
+    counterOfferId: string,
+    extractedData: ApsParseResult | null,
+    hasConfirmationSignature: boolean,
+    messageId: string
+  ): Promise<{ success: boolean; message: string; offer?: any }> {
+    console.log(`🔄 Processing counter-offer acceptance for ${counterOfferId}`);
+
+    // 1. Fetch the counter-offer with related data
+    const counterOffer = await this.prisma.offer.findUnique({
+      where: { id: counterOfferId },
+      include: {
+        thread: {
+          include: {
+            listing: true,
+            sender: true,
+          },
+        },
+        originalOffer: true,
+      },
+    });
+
+    if (!counterOffer) {
+      console.error(`❌ Counter-offer ${counterOfferId} not found`);
+      return { success: false, message: "Counter-offer not found" };
+    }
+
+    if (!counterOffer.isCounterOffer) {
+      console.error(`❌ Offer ${counterOfferId} is not a counter-offer`);
+      return { success: false, message: "Not a counter-offer" };
+    }
+
+    if (counterOffer.status !== OfferStatus.AWAITING_BUYER_SIGNATURE) {
+      console.error(
+        `❌ Counter-offer ${counterOfferId} is not awaiting buyer signature. Status: ${counterOffer.status}`
+      );
+      return {
+        success: false,
+        message: `Counter-offer is not awaiting buyer signature. Current status: ${counterOffer.status}`,
+      };
+    }
+
+    // 2. Check if confirmation signature is present
+    if (!hasConfirmationSignature) {
+      console.log(
+        `⚠️  Counter-offer acceptance received but missing confirmation signature`
+      );
+      return {
+        success: false,
+        message:
+          "Confirmation of Acceptance signature not detected. Please ensure the buyer has signed the Confirmation of Acceptance section.",
+      };
+    }
+
+    // 3. Validate the form terms match the counter-offer (if we have extracted data)
+    const intakeData = counterOffer.intakeData as any;
+    const editedFields = intakeData?.editedFields || {};
+    const discrepancies: string[] = [];
+
+    if (extractedData) {
+      // Check purchase price
+      const counterOfferPrice = editedFields.purchasePrice;
+      const formPrice = extractedData.price_and_deposit?.purchase_price?.numeric;
+
+      if (counterOfferPrice && formPrice && Math.abs(counterOfferPrice - formPrice) > 1) {
+        discrepancies.push(
+          `Purchase price mismatch: Counter-offer=$${counterOfferPrice.toLocaleString()}, Form=$${formPrice.toLocaleString()}`
+        );
+      }
+
+      // Check deposit
+      const counterOfferDeposit = editedFields.deposit;
+      const formDeposit = extractedData.price_and_deposit?.deposit?.numeric;
+
+      if (counterOfferDeposit && formDeposit && Math.abs(counterOfferDeposit - formDeposit) > 1) {
+        discrepancies.push(
+          `Deposit mismatch: Counter-offer=$${counterOfferDeposit.toLocaleString()}, Form=$${formDeposit.toLocaleString()}`
+        );
+      }
+
+      // Check closing date (if specified in counter-offer)
+      if (editedFields.completionDate && extractedData.completion) {
+        const counterOfferDate = new Date(editedFields.completionDate);
+        const formDateStr = this.formatDateFromParts(extractedData.completion);
+        if (formDateStr) {
+          const formDate = new Date(formDateStr);
+          // Allow 1 day tolerance for date comparisons
+          const daysDiff = Math.abs(
+            (counterOfferDate.getTime() - formDate.getTime()) / (1000 * 60 * 60 * 24)
+          );
+          if (daysDiff > 1) {
+            discrepancies.push(
+              `Closing date mismatch: Counter-offer=${counterOfferDate.toLocaleDateString()}, Form=${formDate.toLocaleDateString()}`
+            );
+          }
+        }
+      }
+    }
+
+    // Log discrepancies but don't block acceptance (buyer may have made minor corrections)
+    if (discrepancies.length > 0) {
+      console.log(`⚠️  Discrepancies found between counter-offer and acceptance form:`);
+      discrepancies.forEach((d) => console.log(`   - ${d}`));
+      // For now, we'll proceed but log the discrepancies
+      // In the future, you might want to flag these for review
+    }
+
+    // 4. Update the counter-offer status to ACCEPTED
+    const updatedOffer = await this.prisma.offer.update({
+      where: { id: counterOfferId },
+      data: {
+        status: OfferStatus.ACCEPTED,
+        buyerSignedAt: new Date(),
+        acceptedAt: new Date(),
+      },
+    });
+
+    console.log(`✅ Counter-offer ${counterOfferId} accepted by buyer`);
+
+    // 5. Update the original offer status (if it exists)
+    if (counterOffer.originalOfferId) {
+      await this.prisma.offer.update({
+        where: { id: counterOffer.originalOfferId },
+        data: {
+          status: OfferStatus.SUPERSEDED,
+          declineReason: "Superseded by accepted counter-offer",
+        },
+      });
+      console.log(
+        `✅ Original offer ${counterOffer.originalOfferId} marked as superseded`
+      );
+    }
+
+    // 6. Update the message with the offer ID
+    await this.prisma.message.update({
+      where: { id: messageId },
+      data: {
+        offerId: counterOfferId,
+        subCategory: MessageSubCategory.UPDATED_OFFER,
+      },
+    });
+
+    // 7. Update thread's active offer
+    await this.prisma.thread.update({
+      where: { id: counterOffer.threadId },
+      data: {
+        activeOfferId: counterOfferId,
+      },
+    });
+
+    console.log(`✅ Counter-offer acceptance processed successfully`);
+
+    return {
+      success: true,
+      message: "Counter-offer accepted successfully",
+      offer: updatedOffer,
+    };
+  }
+
+  /**
+   * Find active counter-offer for a sender on a listing
+   * Used to check if an incoming OREA-100 might be a counter-offer acceptance
+   */
+  async findActiveCounterOfferForSender(
+    listingId: string,
+    senderId: string
+  ): Promise<any | null> {
+    const counterOffer = await this.prisma.offer.findFirst({
+      where: {
+        isCounterOffer: true,
+        status: OfferStatus.AWAITING_BUYER_SIGNATURE,
+        thread: {
+          listingId,
+          senderId,
+        },
+      },
+      include: {
+        thread: {
+          include: {
+            listing: true,
+            sender: true,
+          },
+        },
+        originalOffer: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return counterOffer;
+  }
+
+  /**
+   * Helper to format date from APS parser date parts
+   */
+  private formatDateFromParts(dateParts: {
+    day?: string;
+    month?: string;
+    year?: string;
+  }): string | null {
+    if (!dateParts.day || !dateParts.month || !dateParts.year) {
+      return null;
+    }
+
+    try {
+      const monthNames = [
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+      ];
+
+      let monthNum: string;
+      const monthLower = dateParts.month.toLowerCase();
+      const monthIndex = monthNames.findIndex((m) => monthLower.includes(m));
+
+      if (monthIndex >= 0) {
+        monthNum = String(monthIndex + 1).padStart(2, "0");
+      } else {
+        const parsed = parseInt(dateParts.month, 10);
+        monthNum = isNaN(parsed) ? "01" : String(parsed).padStart(2, "0");
+      }
+
+      const day = dateParts.day.replace(/\D/g, "").padStart(2, "0");
+      const year =
+        dateParts.year.length === 2 ? "20" + dateParts.year : dateParts.year;
+
+      return `${year}-${monthNum}-${day}`;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * Check and expire old offers
    * Should be called periodically (e.g., daily cron job)
    */

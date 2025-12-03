@@ -7,6 +7,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { ClassificationModule } from '../classification/classification.module';
 import { OffersModule } from '../offers/offers.module';
+import { ApsParserModule } from '../aps-parser/aps-parser.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { OffersModule } from '../offers/offers.module';
     DocumentsModule,
     ClassificationModule,
     OffersModule,
+    ApsParserModule,
     // TODO: Uncomment when Redis is available
     // BullModule.registerQueue({
     //   name: 'email-processing',

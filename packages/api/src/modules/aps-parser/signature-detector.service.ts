@@ -487,4 +487,147 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
       throw error;
     }
   }
+
+  /**
+   * Check for Confirmation of Acceptance signature on OREA Form 100
+   * This is used when a buyer accepts a seller's counter-offer
+   * The "CONFIRMATION OF ACCEPTANCE" section is on Page 5 (0-based index 4)
+   * @param images - PDF page images (should be high quality, 200+ DPI)
+   */
+  async checkConfirmationOfAcceptance(images: PdfPageImage[]): Promise<{
+    hasConfirmationSignature: boolean;
+    confidence: number;
+    details: {
+      sellerSignaturePresent: boolean;
+      buyerAcceptanceSignaturePresent: boolean;
+      acceptanceDate?: string;
+      location?: string;
+    };
+  }> {
+    if (!this.geminiEnabled) {
+      throw new Error(
+        "Gemini Vision not configured. Please set GOOGLE_GEMINI_API_KEY"
+      );
+    }
+
+    console.log(`🔍 Checking for Confirmation of Acceptance signature...`);
+
+    try {
+      const model = this.genAI!.getGenerativeModel({
+        model: "gemini-2.0-flash-exp",
+      });
+
+      // Page 5 (0-based index 4) contains the Confirmation of Acceptance section
+      const page5Image = images.find((img) => img.pageNumber === 5);
+
+      if (!page5Image) {
+        console.log(`⚠️  Page 5 not found in images`);
+        return {
+          hasConfirmationSignature: false,
+          confidence: 0,
+          details: {
+            sellerSignaturePresent: false,
+            buyerAcceptanceSignaturePresent: false,
+          },
+        };
+      }
+
+      const prompt = `Analyze this image of Page 5 from an OREA Form 100 (Agreement of Purchase and Sale).
+
+Your task is to find the "CONFIRMATION OF ACCEPTANCE" section. This section is typically located in the lower portion of the page and contains:
+1. A statement about the seller confirming acceptance
+2. A signature line for the SELLER to confirm they received the buyer's acceptance
+3. A signature line for the BUYER to confirm their acceptance of a counter-offer
+4. A date field
+
+Look specifically for:
+- The heading "CONFIRMATION OF ACCEPTANCE" or similar text
+- Handwritten signatures in the signature boxes/lines in this section
+- Any dates written in this section
+
+IMPORTANT: This is different from the main signature section. The Confirmation of Acceptance is used when:
+- A seller made a counter-offer
+- The buyer is now accepting that counter-offer
+- Both parties sign in this specific section to confirm
+
+Return ONLY valid JSON in this exact format:
+{
+  "hasConfirmationSignature": true/false,
+  "confidence": 0.0-1.0,
+  "details": {
+    "sellerSignaturePresent": true/false,
+    "buyerAcceptanceSignaturePresent": true/false,
+    "acceptanceDate": "date if visible, or null",
+    "location": "description of where signatures were found"
+  }
+}
+
+Rules:
+- Set hasConfirmationSignature to TRUE only if the BUYER'S acceptance signature is present
+- The seller's signature being present is informational but not required for hasConfirmationSignature
+- Be conservative - only mark as true if you clearly see a handwritten signature
+- If the section exists but is empty, return hasConfirmationSignature: false`;
+
+      console.log(`  Checking page 5 for Confirmation of Acceptance...`);
+      console.log(
+        `    Image size: ${(page5Image.base64.length / 1024).toFixed(1)} KB`
+      );
+
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType: "image/png",
+            data: page5Image.base64,
+          },
+        },
+      ]);
+
+      const text = result.response.text();
+      console.log(`    📝 Gemini response: ${text.substring(0, 200)}...`);
+
+      // Parse JSON response
+      let parsedResult: {
+        hasConfirmationSignature: boolean;
+        confidence: number;
+        details: {
+          sellerSignaturePresent: boolean;
+          buyerAcceptanceSignaturePresent: boolean;
+          acceptanceDate?: string;
+          location?: string;
+        };
+      };
+
+      try {
+        const cleanedText = text
+          .replace(/```json\n?/g, "")
+          .replace(/```\n?/g, "")
+          .trim();
+        parsedResult = JSON.parse(cleanedText);
+      } catch (parseError) {
+        console.error(`❌ Failed to parse Confirmation of Acceptance response:`);
+        console.error(`   Raw text: ${text}`);
+        return {
+          hasConfirmationSignature: false,
+          confidence: 0,
+          details: {
+            sellerSignaturePresent: false,
+            buyerAcceptanceSignaturePresent: false,
+            location: "Parse error - check logs",
+          },
+        };
+      }
+
+      console.log(
+        `✅ Confirmation of Acceptance check complete: ${
+          parsedResult.hasConfirmationSignature ? "SIGNED" : "NOT SIGNED"
+        } (confidence: ${(parsedResult.confidence * 100).toFixed(0)}%)`
+      );
+
+      return parsedResult;
+    } catch (error: any) {
+      console.error("❌ Confirmation of Acceptance check failed:", error);
+      throw error;
+    }
+  }
 }

@@ -98,11 +98,29 @@ export class DropboxSignService {
 
       // Add signers
       options.signers.forEach((signer, index) => {
+        // Validate signer email is provided
+        if (!signer.emailAddress || signer.emailAddress.trim() === "") {
+          throw new Error(
+            `Signer ${index} email address is required but was empty or undefined`
+          );
+        }
+
+        // Validate signer name is provided
+        if (!signer.name || signer.name.trim() === "") {
+          throw new Error(
+            `Signer ${index} name is required but was empty or undefined`
+          );
+        }
+
+        this.logger.log(
+          `Adding signer ${index}: ${signer.emailAddress} (${signer.name})`
+        );
+
         formData.append(
           `signers[${index}][email_address]`,
-          signer.emailAddress
+          signer.emailAddress.trim()
         );
-        formData.append(`signers[${index}][name]`, signer.name);
+        formData.append(`signers[${index}][name]`, signer.name.trim());
         if (signer.order !== undefined) {
           formData.append(`signers[${index}][order]`, signer.order.toString());
         }
@@ -129,8 +147,17 @@ export class DropboxSignService {
       }
 
       // Add signature fields from APS-2024 map (if using file buffer with predefined fields)
+      // NOTE: Only add signature fields if the PDF doesn't already have form fields
+      // When we flatten the PDF, form fields are removed, so we can safely add signature fields
       if (options.file && !options.fileUrl) {
+        this.logger.log(
+          `Adding ${APS_2024_SIGNATURE_FIELDS.length} signature fields to form data`
+        );
         this.addSignatureFields(formData);
+      } else {
+        this.logger.log(
+          `Skipping signature fields (using fileUrl or no file provided)`
+        );
       }
 
       // Create the signature request
@@ -166,8 +193,24 @@ export class DropboxSignService {
       );
       if (error.response?.data) {
         this.logger.error(
-          `Dropbox Sign API error: ${JSON.stringify(error.response.data)}`
+          `Dropbox Sign API error: ${JSON.stringify(
+            error.response.data,
+            null,
+            2
+          )}`
         );
+        this.logger.error(
+          `Dropbox Sign API error status: ${error.response.status}`
+        );
+        this.logger.error(
+          `Dropbox Sign API error headers: ${JSON.stringify(
+            error.response.headers
+          )}`
+        );
+      }
+      if (error.response?.config) {
+        this.logger.error(`Request URL: ${error.response.config.url}`);
+        this.logger.error(`Request method: ${error.response.config.method}`);
       }
       throw error;
     }

@@ -8,7 +8,10 @@ import { AttachmentsService } from "../attachments/attachments.service";
 import { DocumentsService } from "../documents/documents.service";
 import { ClassificationService } from "../classification/classification.service";
 import { OffersService } from "../offers/offers.service";
+import { SignatureDetectorService } from "../aps-parser/signature-detector.service";
+import { PdfToImageService } from "../aps-parser/pdf-to-image.service";
 import { MessageCategory } from "@prisma/client";
+import axios from "axios";
 
 @Injectable()
 export class EmailService {
@@ -20,7 +23,9 @@ export class EmailService {
     private attachmentsService: AttachmentsService,
     private documentsService: DocumentsService,
     private classificationService: ClassificationService,
-    private offersService: OffersService
+    private offersService: OffersService,
+    private signatureDetectorService: SignatureDetectorService,
+    private pdfToImageService: PdfToImageService
   ) {}
 
   /**
@@ -370,6 +375,118 @@ export class EmailService {
       }
     }
 
+    // 7.6. Check for counter-offer acceptance (OREA-100 from sender with active counter-offer)
+    const orea100Analysis = documentAnalyses.find((a) =>
+      a.formType?.includes("Form 100")
+    );
+
+    if (orea100Analysis) {
+      console.log(
+        "📋 Detected OREA-100 form - checking for counter-offer acceptance..."
+      );
+
+      // Check if this sender has an active counter-offer awaiting their signature
+      const activeCounterOffer =
+        await this.offersService.findActiveCounterOfferForSender(
+          listing.id,
+          sender.id
+        );
+
+      if (activeCounterOffer) {
+        console.log(
+          `🔄 Found active counter-offer ${activeCounterOffer.id} awaiting buyer signature`
+        );
+
+        try {
+          // Get the attachment to download PDF for signature check
+          const orea100Attachment = attachments.find(
+            (att) => att.documentAnalysisId === orea100Analysis.id
+          );
+
+          let hasConfirmationSignature = false;
+
+          if (orea100Attachment) {
+            // Download PDF and check for Confirmation of Acceptance signature
+            const pdfBuffer = await this.downloadPdfFromSupabase(
+              orea100Attachment.s3Key
+            );
+
+            // Convert PDF to images for signature detection
+            const images = await this.pdfToImageService.convertPdfToImages(
+              pdfBuffer,
+              { maxPages: 6, quality: 90 }
+            );
+
+            if (images.length > 0) {
+              const confirmationCheck =
+                await this.signatureDetectorService.checkConfirmationOfAcceptance(
+                  images
+                );
+
+              hasConfirmationSignature =
+                confirmationCheck.hasConfirmationSignature;
+
+              console.log(
+                `📝 Confirmation of Acceptance signature: ${
+                  hasConfirmationSignature ? "FOUND" : "NOT FOUND"
+                } (confidence: ${(confirmationCheck.confidence * 100).toFixed(
+                  0
+                )}%)`
+              );
+
+              if (confirmationCheck.details.buyerAcceptanceSignaturePresent) {
+                console.log(
+                  `   - Buyer acceptance signature: ✅ at ${
+                    confirmationCheck.details.location || "unknown location"
+                  }`
+                );
+              }
+              if (confirmationCheck.details.sellerSignaturePresent) {
+                console.log(`   - Seller confirmation signature: ✅`);
+              }
+              if (confirmationCheck.details.acceptanceDate) {
+                console.log(
+                  `   - Acceptance date: ${confirmationCheck.details.acceptanceDate}`
+                );
+              }
+            }
+          }
+
+          // Process the counter-offer acceptance
+          const acceptanceResult =
+            await this.offersService.processCounterOfferAcceptance(
+              activeCounterOffer.id,
+              orea100Analysis.formFieldsExtracted,
+              hasConfirmationSignature,
+              message.id
+            );
+
+          if (acceptanceResult.success) {
+            console.log(
+              `✅ Counter-offer acceptance processed: ${acceptanceResult.message}`
+            );
+            // Skip normal classification since we've handled this as a counter-offer acceptance
+            console.log(
+              "✅ Email processed successfully (counter-offer acceptance)"
+            );
+            return;
+          } else {
+            console.log(
+              `⚠️  Counter-offer acceptance not processed: ${acceptanceResult.message}`
+            );
+            // Continue with normal classification
+          }
+        } catch (error) {
+          console.error("Failed to process counter-offer acceptance:", error);
+          // Continue with normal classification
+        }
+      } else {
+        console.log(
+          "📋 No active counter-offer found for this sender - treating as new/updated offer"
+        );
+      }
+    }
+
     // 8. Classify message (hybrid: heuristics + AI if needed)
     // Now enhanced with document analysis results for better accuracy
     console.log("🤖 Classifying message...");
@@ -486,5 +603,23 @@ export class EmailService {
     // Match all <...> patterns
     const matches = references.match(/<[^>]+>/g);
     return matches || [];
+  }
+
+  /**
+   * Download PDF from Supabase Storage
+   */
+  private async downloadPdfFromSupabase(s3Key: string): Promise<Buffer> {
+    const signedUrl = await this.supabaseService.getSignedUrl(
+      "attachments",
+      s3Key,
+      300 // 5 min
+    );
+
+    const response = await axios.get(signedUrl, {
+      responseType: "arraybuffer",
+      timeout: 30000,
+    });
+
+    return Buffer.from(response.data);
   }
 }

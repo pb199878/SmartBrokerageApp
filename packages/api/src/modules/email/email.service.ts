@@ -375,7 +375,10 @@ export class EmailService {
       }
     }
 
-    // 7.6. Check for counter-offer acceptance (OREA-100 from sender with active counter-offer)
+    // 7.6. Check for counter-offer acceptance vs new offer (OREA-100 from sender with active counter-offer)
+    // KEY DISTINCTION:
+    //   - New offer from buyer: ONLY buyer initials present (no seller initials)
+    //   - Accepted counter-offer: BOTH buyer AND seller initials present
     const orea100Analysis = documentAnalyses.find((a) =>
       a.formType?.includes("Form 100")
     );
@@ -404,20 +407,56 @@ export class EmailService {
           );
 
           let hasConfirmationSignature = false;
+          let isNewOfferFromBuyer = false;
 
           if (orea100Attachment) {
-            // Download PDF and check for Confirmation of Acceptance signature
+            // Download PDF for analysis
             const pdfBuffer = await this.downloadPdfFromSupabase(
               orea100Attachment.s3Key
             );
 
-            // Convert PDF to images for signature detection
-            const images = await this.pdfToImageService.convertPdfToImages(
-              pdfBuffer,
-              { maxPages: 6, quality: 90 }
+            // FIRST: Check if this is a new offer vs acceptance by detecting seller initials
+            // New offer = only buyer initials, Acceptance = both buyer AND seller initials
+            console.log(
+              "🔍 Detecting if this is a new offer or counter-offer acceptance..."
             );
+            const offerTypeDetection =
+              await this.signatureDetectorService.detectOfferVsAcceptance(
+                pdfBuffer
+              );
 
-            if (images.length > 0) {
+            console.log(`📊 Detection result: ${offerTypeDetection.reasoning}`);
+
+            if (offerTypeDetection.isLikelyNewOffer) {
+              // This is a NEW offer from the buyer (no seller initials)
+              // The buyer is NOT accepting the counter-offer, they're sending a fresh offer
+              isNewOfferFromBuyer = true;
+              console.log(
+                `📝 This appears to be a NEW OFFER from the buyer (no seller initials detected)`
+              );
+              console.log(
+                `   Buyer initials: ${offerTypeDetection.details.buyerInitialsCount}/${offerTypeDetection.details.pagesChecked} pages`
+              );
+              console.log(
+                `   Seller initials: ${offerTypeDetection.details.sellerInitialsCount}/${offerTypeDetection.details.pagesChecked} pages`
+              );
+              console.log(
+                `   → Will treat as new offer, NOT as counter-offer acceptance`
+              );
+            } else if (offerTypeDetection.isLikelyAcceptance) {
+              // This is an ACCEPTANCE (seller initials present)
+              // Continue with Confirmation of Acceptance signature check
+              console.log(
+                `📝 This appears to be a COUNTER-OFFER ACCEPTANCE (seller initials detected)`
+              );
+              console.log(
+                `   Buyer initials: ${offerTypeDetection.details.buyerInitialsCount}/${offerTypeDetection.details.pagesChecked} pages`
+              );
+              console.log(
+                `   Seller initials: ${offerTypeDetection.details.sellerInitialsCount}/${offerTypeDetection.details.pagesChecked} pages`
+              );
+
+              // Now check for Confirmation of Acceptance signature
               const confirmationCheck =
                 await this.signatureDetectorService.checkConfirmationOfAcceptance(
                   pdfBuffer
@@ -449,37 +488,58 @@ export class EmailService {
                   `   - Acceptance date: ${confirmationCheck.details.acceptanceDate}`
                 );
               }
+            } else {
+              // Inconclusive - fall back to checking Confirmation of Acceptance
+              console.log(
+                `⚠️  Could not determine offer type from initials - checking Confirmation of Acceptance`
+              );
+              const confirmationCheck =
+                await this.signatureDetectorService.checkConfirmationOfAcceptance(
+                  pdfBuffer
+                );
+
+              hasConfirmationSignature =
+                confirmationCheck.hasConfirmationSignature;
             }
           }
 
-          // Process the counter-offer acceptance
-          const acceptanceResult =
-            await this.offersService.processCounterOfferAcceptance(
-              activeCounterOffer.id,
-              orea100Analysis.formFieldsExtracted,
-              hasConfirmationSignature,
-              message.id
-            );
-
-          if (acceptanceResult.success) {
+          // If this is a NEW offer from the buyer (no seller initials), don't treat as acceptance
+          if (isNewOfferFromBuyer) {
             console.log(
-              `✅ Counter-offer acceptance processed: ${acceptanceResult.message}`
+              `📋 Buyer sent a new offer while counter-offer was pending - processing as NEW offer`
             );
-            // Skip normal classification since we've handled this as a counter-offer acceptance
-            console.log(
-              "✅ Email processed successfully (counter-offer acceptance)"
-            );
-            return;
+            // Continue with normal classification flow (fall through to step 8)
+            // This will supersede the active counter-offer and create a new offer
           } else {
-            console.log(
-              `⚠️  Counter-offer acceptance not processed: ${acceptanceResult.message}`
-            );
-            // This was detected as a counter-offer acceptance attempt (even if invalid),
-            // so we should NOT treat it as a new offer. Return early to prevent classification.
-            console.log(
-              "⚠️  Skipping classification - this was a counter-offer acceptance attempt, not a new offer"
-            );
-            return;
+            // This might be an acceptance - process it
+            const acceptanceResult =
+              await this.offersService.processCounterOfferAcceptance(
+                activeCounterOffer.id,
+                orea100Analysis.formFieldsExtracted,
+                hasConfirmationSignature,
+                message.id
+              );
+
+            if (acceptanceResult.success) {
+              console.log(
+                `✅ Counter-offer acceptance processed: ${acceptanceResult.message}`
+              );
+              // Skip normal classification since we've handled this as a counter-offer acceptance
+              console.log(
+                "✅ Email processed successfully (counter-offer acceptance)"
+              );
+              return;
+            } else {
+              console.log(
+                `⚠️  Counter-offer acceptance not processed: ${acceptanceResult.message}`
+              );
+              // This was detected as a counter-offer acceptance attempt (even if invalid),
+              // so we should NOT treat it as a new offer. Return early to prevent classification.
+              console.log(
+                "⚠️  Skipping classification - this was a counter-offer acceptance attempt, not a new offer"
+              );
+              return;
+            }
           }
         } catch (error) {
           console.error("Failed to process counter-offer acceptance:", error);

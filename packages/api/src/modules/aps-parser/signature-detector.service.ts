@@ -489,6 +489,299 @@ BE VERY GENEROUS - if you see ANY marks that could possibly be initials, mark it
   }
 
   /**
+   * Check for seller initials on OREA form pages
+   * Specifically looks for initials in seller boxes at BOTTOM CENTER of pages 1, 2, 3, 4, and 6
+   * This helps distinguish between:
+   *   - New offer from buyer (no seller initials)
+   *   - Accepted counter-offer (seller initials present)
+   * @param images - PDF page images (should be high quality, 200+ DPI)
+   */
+  async checkSellerInitials(images: PdfPageImage[]): Promise<{
+    hasSellerInitials: boolean;
+    pageResults: {
+      pageNumber: number;
+      hasBuyerInitials: boolean;
+      hasSellerInitials: boolean;
+      confidence: number;
+      location?: string;
+    }[];
+    totalPagesChecked: number;
+    totalSellerInitialsFound: number;
+    totalBuyerInitialsFound: number;
+  }> {
+    if (!this.geminiEnabled) {
+      throw new Error(
+        "Gemini Vision not configured. Please set GOOGLE_GEMINI_API_KEY"
+      );
+    }
+
+    console.log(
+      `🔍 Checking for seller initials on OREA form pages 1, 2, 3, 4, 6...`
+    );
+
+    // Pages to check (1-indexed) - same as buyer initials
+    const pagesToCheck = [1, 2, 3, 4, 6];
+    const pageResults: {
+      pageNumber: number;
+      hasBuyerInitials: boolean;
+      hasSellerInitials: boolean;
+      confidence: number;
+      location?: string;
+    }[] = [];
+
+    try {
+      const model = this.genAI!.getGenerativeModel({
+        model: "gemini-flash-lite-latest",
+      });
+
+      // Check each required page
+      for (const pageNum of pagesToCheck) {
+        const pageImage = images.find((img) => img.pageNumber === pageNum);
+
+        if (!pageImage) {
+          console.log(`⚠️  Page ${pageNum} not found in images`);
+          pageResults.push({
+            pageNumber: pageNum,
+            hasBuyerInitials: false,
+            hasSellerInitials: false,
+            confidence: 0,
+          });
+          continue;
+        }
+
+        const prompt = `Look at this image of page ${pageNum} from an OREA Form 100 (Agreement of Purchase and Sale).
+
+At the BOTTOM CENTER of the page, there should be TWO initials boxes:
+1. BUYER initials box (usually on the left or labeled "Buyer's Initials")
+2. SELLER initials box (usually on the right or labeled "Seller's Initials")
+
+Your task: Check BOTH boxes for any handwriting or marks.
+
+For EACH box, look for:
+- Any letters or scribbles inside
+- Any handwritten marks
+- Any typed/printed initials
+- Even faint or messy marks count
+
+Return ONLY this JSON format:
+{
+  "hasBuyerInitials": true/false,
+  "hasSellerInitials": true/false,
+  "confidence": 0.0-1.0,
+  "location": "describe what you see in each box (e.g., 'buyer box has initials JD, seller box is empty')"
+}
+
+CRITICAL: 
+- The SELLER initials box is typically on the RIGHT side or labeled "Seller"
+- If ONLY ONE box has marks, determine which party it belongs to based on position/label
+- If you see marks in BOTH boxes, both should be true
+- If you only see marks in the buyer side (left), hasSellerInitials should be false`;
+
+        console.log(`  Checking page ${pageNum}...`);
+
+        const result = await model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType: "image/png",
+              data: pageImage.base64,
+            },
+          },
+        ]);
+
+        const text = result.response.text();
+        console.log(`    📝 Gemini response: ${text.substring(0, 150)}...`);
+
+        // Parse JSON response
+        let pageResult: {
+          hasBuyerInitials: boolean;
+          hasSellerInitials: boolean;
+          confidence: number;
+          location?: string;
+        };
+
+        try {
+          const cleanedText = text
+            .replace(/```json\n?/g, "")
+            .replace(/```\n?/g, "")
+            .trim();
+          pageResult = JSON.parse(cleanedText);
+        } catch (parseError) {
+          console.error(`❌ Failed to parse response for page ${pageNum}:`);
+          console.error(`   Raw text: ${text}`);
+          pageResult = {
+            hasBuyerInitials: false,
+            hasSellerInitials: false,
+            confidence: 0,
+            location: "Parse error - check logs",
+          };
+        }
+
+        pageResults.push({
+          pageNumber: pageNum,
+          ...pageResult,
+        });
+
+        console.log(
+          `  Page ${pageNum}: Buyer: ${
+            pageResult.hasBuyerInitials ? "✅" : "❌"
+          }, Seller: ${
+            pageResult.hasSellerInitials ? "✅" : "❌"
+          } (confidence: ${(pageResult.confidence * 100).toFixed(0)}%)`
+        );
+      }
+
+      const totalSellerInitialsFound = pageResults.filter(
+        (r) => r.hasSellerInitials
+      ).length;
+      const totalBuyerInitialsFound = pageResults.filter(
+        (r) => r.hasBuyerInitials
+      ).length;
+      const hasSellerInitials = totalSellerInitialsFound > 0;
+
+      console.log(
+        `📝 Initials check complete: Buyer ${totalBuyerInitialsFound}/${pagesToCheck.length}, Seller ${totalSellerInitialsFound}/${pagesToCheck.length}`
+      );
+
+      return {
+        hasSellerInitials,
+        pageResults,
+        totalPagesChecked: pagesToCheck.length,
+        totalSellerInitialsFound,
+        totalBuyerInitialsFound,
+      };
+    } catch (error: any) {
+      console.error("❌ Seller initials check failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Detect if an OREA-100 form is a new offer or an accepted counter-offer
+   * by checking for the presence of seller initials.
+   *
+   * - New offer: Only buyer initials present
+   * - Accepted counter-offer: Both buyer AND seller initials present
+   *
+   * @param pdfBuffer - PDF buffer of the OREA form
+   * @returns Detection result indicating whether this is likely a new offer or acceptance
+   */
+  async detectOfferVsAcceptance(pdfBuffer: Buffer): Promise<{
+    isLikelyNewOffer: boolean;
+    isLikelyAcceptance: boolean;
+    confidence: number;
+    details: {
+      hasBuyerInitials: boolean;
+      hasSellerInitials: boolean;
+      buyerInitialsCount: number;
+      sellerInitialsCount: number;
+      pagesChecked: number;
+    };
+    reasoning: string;
+  }> {
+    console.log(`🔍 Detecting offer type (new offer vs acceptance)...`);
+
+    try {
+      // Convert PDF to images for analysis
+      const { PdfToImageService } = await import("./pdf-to-image.service");
+      const pdfToImageService = new PdfToImageService();
+      const images = await pdfToImageService.convertPdfToImages(pdfBuffer, {
+        maxPages: 6,
+        quality: 90,
+      });
+
+      if (images.length === 0) {
+        return {
+          isLikelyNewOffer: false,
+          isLikelyAcceptance: false,
+          confidence: 0,
+          details: {
+            hasBuyerInitials: false,
+            hasSellerInitials: false,
+            buyerInitialsCount: 0,
+            sellerInitialsCount: 0,
+            pagesChecked: 0,
+          },
+          reasoning: "Could not convert PDF to images for analysis",
+        };
+      }
+
+      // Check for both buyer and seller initials
+      const initialsCheck = await this.checkSellerInitials(images);
+
+      const hasBuyerInitials = initialsCheck.totalBuyerInitialsFound > 0;
+      const hasSellerInitials = initialsCheck.hasSellerInitials;
+
+      let isLikelyNewOffer = false;
+      let isLikelyAcceptance = false;
+      let confidence = 0;
+      let reasoning = "";
+
+      if (hasBuyerInitials && hasSellerInitials) {
+        // BOTH initials present → This is an accepted counter-offer
+        isLikelyAcceptance = true;
+        confidence =
+          (initialsCheck.totalSellerInitialsFound /
+            initialsCheck.totalPagesChecked) *
+          100;
+        reasoning = `Both buyer (${initialsCheck.totalBuyerInitialsFound}/${initialsCheck.totalPagesChecked} pages) and seller (${initialsCheck.totalSellerInitialsFound}/${initialsCheck.totalPagesChecked} pages) initials detected - this is likely an accepted counter-offer`;
+      } else if (hasBuyerInitials && !hasSellerInitials) {
+        // ONLY buyer initials → This is a new offer
+        isLikelyNewOffer = true;
+        confidence =
+          (initialsCheck.totalBuyerInitialsFound /
+            initialsCheck.totalPagesChecked) *
+          100;
+        reasoning = `Only buyer initials detected (${initialsCheck.totalBuyerInitialsFound}/${initialsCheck.totalPagesChecked} pages), no seller initials found - this is likely a new offer from the buyer`;
+      } else {
+        // No initials at all - inconclusive
+        reasoning = "No initials detected on the form - inconclusive result";
+        confidence = 0;
+      }
+
+      console.log(
+        `📋 Detection result: ${
+          isLikelyNewOffer
+            ? "NEW OFFER"
+            : isLikelyAcceptance
+            ? "ACCEPTANCE"
+            : "INCONCLUSIVE"
+        } (confidence: ${confidence.toFixed(0)}%)`
+      );
+      console.log(`   ${reasoning}`);
+
+      return {
+        isLikelyNewOffer,
+        isLikelyAcceptance,
+        confidence,
+        details: {
+          hasBuyerInitials,
+          hasSellerInitials,
+          buyerInitialsCount: initialsCheck.totalBuyerInitialsFound,
+          sellerInitialsCount: initialsCheck.totalSellerInitialsFound,
+          pagesChecked: initialsCheck.totalPagesChecked,
+        },
+        reasoning,
+      };
+    } catch (error: any) {
+      console.error("❌ Offer vs acceptance detection failed:", error);
+      return {
+        isLikelyNewOffer: false,
+        isLikelyAcceptance: false,
+        confidence: 0,
+        details: {
+          hasBuyerInitials: false,
+          hasSellerInitials: false,
+          buyerInitialsCount: 0,
+          sellerInitialsCount: 0,
+          pagesChecked: 0,
+        },
+        reasoning: `Detection failed: ${error.message}`,
+      };
+    }
+  }
+
+  /**
    * Check for Confirmation of Acceptance signature on OREA Form 100
    * This is used when a buyer accepts a seller's counter-offer
    * The "CONFIRMATION OF ACCEPTANCE" section is on Page 5 (0-based index 4)

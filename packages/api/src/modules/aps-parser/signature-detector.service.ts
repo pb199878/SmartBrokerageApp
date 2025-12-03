@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PdfPageImage } from "./pdf-to-image.service";
+import { PdfPageImage, PdfToImageService } from "./pdf-to-image.service";
 
 export interface SignatureDetectionResult {
   hasSignatures: boolean;
@@ -45,7 +45,7 @@ export class SignatureDetectorService {
   private genAI: GoogleGenerativeAI | null = null;
   private geminiEnabled: boolean = false;
 
-  constructor() {
+  constructor(private pdfToImageService: PdfToImageService) {
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
@@ -697,13 +697,14 @@ CRITICAL:
     console.log(`🔍 Detecting offer type (new offer vs acceptance)...`);
 
     try {
-      // Convert PDF to images for analysis
-      const { PdfToImageService } = await import("./pdf-to-image.service");
-      const pdfToImageService = new PdfToImageService();
-      const images = await pdfToImageService.convertPdfToImages(pdfBuffer, {
-        maxPages: 6,
-        quality: 90,
-      });
+      // Convert PDF to images for analysis (using injected service)
+      const images = await this.pdfToImageService.convertPdfToImages(
+        pdfBuffer,
+        {
+          maxPages: 6,
+          quality: 90,
+        }
+      );
 
       if (images.length === 0) {
         return {

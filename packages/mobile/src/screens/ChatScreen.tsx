@@ -203,7 +203,7 @@ export default function ChatScreen() {
       navigation.navigate("DropboxSign", {
         signUrl: data.signUrl,
         offerId: offerId,
-        signingType: 'accept',
+        signingType: "accept",
       });
     },
     onError: (error: any) => {
@@ -464,10 +464,9 @@ export default function ChatScreen() {
           {/* Attachments (exclude OREA-124 forms which have their own card) */}
           {hasAttachments && !hasOffer && (
             <View style={styles.attachments}>
-              {item.attachments!
-                .filter(
-                  (att) =>
-                    !att.documentAnalysis?.formType?.includes("Form 124")
+              {item
+                .attachments!.filter(
+                  (att) => !att.documentAnalysis?.formType?.includes("Form 124")
                 )
                 .map((att) => (
                   <TouchableOpacity

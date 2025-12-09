@@ -845,12 +845,7 @@ Return ONLY valid JSON in this exact format:
     "acceptanceDate": "date if visible, or null",
     "location": "description of where signatures were found"
   }
-}
-
-Rules:
-- Set hasConfirmationSignature to TRUE only if the BUYER'S acceptance signature is present
-- The seller's signature being present is informational but not required for hasConfirmationSignature
-- If the section exists but is empty, return hasConfirmationSignature: false`;
+}`;
 
       const result = await model.generateContent([
         prompt,
@@ -863,7 +858,7 @@ Rules:
       ]);
 
       const text = result.response.text();
-      console.log(`    📝 Gemini response: ${text.substring(0, 200)}...`);
+      console.log(`    📝 Geminiss response: ${text}`);
 
       // Parse JSON response
       let parsedResult: {

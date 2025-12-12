@@ -1238,6 +1238,21 @@ export class OffersService {
   ): Promise<void> {
     console.log(`✅ All signatures completed for offer ${offer.id}`);
 
+    // IDEMPOTENCY: Check if this webhook has already been processed
+    // If offer status is beyond AWAITING_SELLER_SIGNATURE, we've already handled this
+    if (
+      offer.status === OfferStatus.AWAITING_BUYER_SIGNATURE ||
+      offer.status === OfferStatus.CONDITIONALLY_ACCEPTED ||
+      offer.status === OfferStatus.ACCEPTED ||
+      offer.status === OfferStatus.SUPERSEDED ||
+      offer.status === OfferStatus.DECLINED
+    ) {
+      console.log(
+        `⚠️  Skipping duplicate webhook - offer ${offer.id} already processed (status: ${offer.status})`
+      );
+      return;
+    }
+
     // Check if this is a counter-offer
     if (offer.isCounterOffer) {
       console.log(`🔄 This is a counter-offer, sending to buyer agent`);

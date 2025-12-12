@@ -95,7 +95,22 @@ export class EmailService {
 
     console.log(`✅ Found listing: ${listing.id} (${listing.address})`);
 
-    // 3. Find or create sender
+    // 3. GLOBAL DUPLICATE CHECK: Skip if this exact Message-ID was already processed
+    // This prevents Mailgun webhook retries from creating duplicate offers
+    if (email.messageId) {
+      const existingMessageWithSameId = await this.prisma.message.findFirst({
+        where: { messageId: email.messageId },
+      });
+
+      if (existingMessageWithSameId) {
+        console.log(
+          `⚠️  DUPLICATE: Message-ID ${email.messageId} already processed - skipping webhook retry`
+        );
+        return;
+      }
+    }
+
+    // 4. Find or create sender
     const sender = await this.prisma.sender.upsert({
       where: { email: email.from },
       update: {},

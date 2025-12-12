@@ -68,17 +68,15 @@ export default function CounterOfferFormScreen() {
         : "";
 
       // Format conditions: prefer Schedule A conditions (offerConditions) if available
+      // Use exact condition text without appending dates to preserve original format
       let conditionsStr = offer.conditions || "";
       if (offer.offerConditions && offer.offerConditions.length > 0) {
-        // Format Schedule A conditions as a numbered list
+        // Format Schedule A conditions as a numbered list with original descriptions
         conditionsStr = offer.offerConditions
           .map((condition, index) => {
             const num = index + 1;
             const desc = condition.description || "";
-            const dueDate = condition.dueDate
-              ? ` (Due: ${new Date(condition.dueDate).toLocaleDateString()})`
-              : "";
-            return `${num}. ${desc}${dueDate}`;
+            return `${num}. ${desc}`;
           })
           .join("\n\n");
       }

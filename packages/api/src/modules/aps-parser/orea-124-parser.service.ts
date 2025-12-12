@@ -142,6 +142,7 @@ Return the JSON now:`;
 
   /**
    * Normalize fulfilled conditions from Gemini extraction
+   * Also normalizes whitespace (PDF line breaks → single spaces)
    */
   private normalizeFulfilledConditions(
     rawConditions: any[]
@@ -153,8 +154,9 @@ Return the JSON now:`;
     return rawConditions
       .filter((c) => c.description && c.description.trim().length > 0)
       .map((condition) => ({
-        description: condition.description.trim(),
-        note: condition.note?.trim() || undefined,
+        // Normalize whitespace: convert newlines and multiple spaces to single spaces
+        description: condition.description.trim().replace(/\s+/g, " "),
+        note: condition.note?.trim().replace(/\s+/g, " ") || undefined,
       }));
   }
 }

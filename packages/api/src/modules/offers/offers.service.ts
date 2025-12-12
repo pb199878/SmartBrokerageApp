@@ -2397,9 +2397,14 @@ Smart Brokerage Platform`;
   /**
    * Clean raw condition text extracted from PDFs
    * Removes formatting differences between Schedule A and OREA 124
+   * Normalizes whitespace (multiple spaces/newlines → single space)
    */
   private cleanConditionText(rawText: string): string {
     let cleaned = rawText.trim();
+
+    // Normalize all whitespace (newlines, multiple spaces) to single spaces
+    // This fixes PDF extraction artifacts where line breaks appear as big gaps
+    cleaned = cleaned.replace(/\s+/g, " ");
 
     // Remove common OREA 124 headers (case-insensitive)
     // "Condition #1:" → ""
@@ -2641,16 +2646,12 @@ Smart Brokerage Platform`;
           // Special handling for scheduleAConditions array of objects
           if (key === "scheduleAConditions" && value.length > 0) {
             // Format Schedule A conditions as a numbered list
+            // Use exact condition text without appending dates to preserve original format
             const conditionsText = value
               .map((condition: any, index: number) => {
                 const num = index + 1;
                 const desc = condition.description || "";
-                const dueDate = condition.dueDate
-                  ? ` (Due: ${new Date(
-                      condition.dueDate
-                    ).toLocaleDateString()})`
-                  : "";
-                return `${num}. ${desc}${dueDate}`;
+                return `${num}. ${desc}`;
               })
               .join("\n\n");
             flattened[newKey] = conditionsText;

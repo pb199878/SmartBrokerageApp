@@ -521,7 +521,9 @@ Return the JSON now:`;
       .filter((c) => c.description && c.description.trim().length > 0)
       .map((condition, index) => {
         const id = `condition-${index + 1}`;
-        const description = condition.description.trim();
+        // Normalize whitespace: PDF extraction often preserves line breaks as newlines
+        // which appear as "big spaces" - convert all whitespace sequences to single spaces
+        const description = condition.description.trim().replace(/\s+/g, " ");
 
         // Parse due date if present
         let dueDate: string | undefined;

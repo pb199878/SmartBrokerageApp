@@ -1557,17 +1557,14 @@ ${counterOffer.sellerName || "The Seller"}`;
       const domain = process.env.MAILGUN_DOMAIN || "";
       const fromEmail = `${counterOffer.thread.listing.emailAlias}@${domain}`;
 
-      // Get signed URL for attachment
-      const attachmentUrl = await this.supabaseService.getSignedUrl(
-        "attachments",
-        s3Key,
-        3600 // 1 hour
-      );
+      // Prepare attachment filename
+      const attachmentFilename = `counter-offer-${listingAddress.replace(
+        /\s+/g,
+        "-"
+      )}.pdf`;
 
-      // TODO: Mailgun sendEmail needs to support attachments
-      // For now, just send without attachment and log warning
-      console.warn(
-        "⚠️  Attachment support not yet implemented in MailgunService"
+      console.log(
+        `📎 Attaching signed PDF: ${attachmentFilename} (${signedDoc.length} bytes)`
       );
 
       await this.mailgunService.sendEmail(
@@ -1578,8 +1575,11 @@ ${counterOffer.sellerName || "The Seller"}`;
         emailBody.replace(/\n/g, "<br>"),
         counterOffer.thread.emailThreadId, // In-Reply-To
         undefined, // References - would need to build from thread
-        undefined // Message-ID
+        undefined, // Message-ID
+        [{ filename: attachmentFilename, data: signedDoc }] // Attachment
       );
+
+      console.log(`✅ Email sent with attachment to ${buyerAgentEmail}`);
 
       // 7. Update message status to SENT
       await this.prisma.message.update({
@@ -1733,32 +1733,141 @@ ${counterOffer.sellerName || "The Seller"}`;
       }
     }
 
-    // Log discrepancies but don't block acceptance (buyer may have made minor corrections)
+    // Block acceptance if discrepancies are found
     if (discrepancies.length > 0) {
       console.log(
-        `⚠️  Discrepancies found between counter-offer and acceptance form:`
+        `❌ Discrepancies found between counter-offer and acceptance form - blocking acceptance:`
       );
       discrepancies.forEach((d) => console.log(`   - ${d}`));
-      // For now, we'll proceed but log the discrepancies
-      // In the future, you might want to flag these for review
+
+      // Store the discrepancies on the offer for reference
+      await this.prisma.offer.update({
+        where: { id: counterOfferId },
+        data: {
+          errorMessage: `Acceptance rejected due to discrepancies: ${discrepancies.join(
+            "; "
+          )}`,
+        },
+      });
+
+      return {
+        success: false,
+        message: `Counter-offer acceptance rejected due to discrepancies between the counter-offer terms and the submitted form:\n\n${discrepancies.join(
+          "\n"
+        )}\n\nPlease ensure the signed form matches the original counter-offer terms exactly.`,
+      };
     }
 
     // Note: Other active offers were already superseded when the counter-offer was sent
     // (in sendCounterOfferToAgent). No need to supersede again here.
 
-    // 4. Update the counter-offer status to ACCEPTED
-    const updatedOffer = await this.prisma.offer.update({
-      where: { id: counterOfferId },
-      data: {
-        status: OfferStatus.ACCEPTED,
-        buyerSignedAt: new Date(),
-        acceptedAt: new Date(),
+    // 4. Check for Schedule A conditions that need to be tracked
+    // Similar to regular offer acceptance flow - if conditions exist, mark as CONDITIONALLY_ACCEPTED
+    let scheduleAConditions: any[] = [];
+
+    // First, try to get conditions from the extracted data (from the signed form)
+    if (
+      extractedData?.scheduleAConditions &&
+      extractedData.scheduleAConditions.length > 0
+    ) {
+      scheduleAConditions = extractedData.scheduleAConditions;
+      console.log(
+        `📋 Found ${scheduleAConditions.length} Schedule A condition(s) from signed form`
+      );
+    } else {
+      // Fall back to conditions stored on the counter offer (from editedFields or original offer)
+      const intakeData = counterOffer.intakeData as any;
+      const editedConditions = intakeData?.editedFields?.conditions;
+
+      if (editedConditions && editedConditions.trim().length > 0) {
+        // Parse the conditions text into an array format for createOfferConditions
+        const conditionsLines = editedConditions
+          .split(/\n+/)
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0)
+          .map((line: string) => {
+            // Remove leading numbers/bullets (e.g., "1. ", "1) ", "- ")
+            return line.replace(/^[\d\.\)\-\s]+/, "").trim();
+          })
+          .filter((line: string) => line.length > 0);
+
+        scheduleAConditions = conditionsLines.map((desc: string) => ({
+          description: desc,
+          dueDate: null, // Due dates would need to be parsed from the description if present
+        }));
+
+        if (scheduleAConditions.length > 0) {
+          console.log(
+            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer editedFields`
+          );
+        }
+      } else if (
+        counterOffer.conditions &&
+        counterOffer.conditions.trim().length > 0
+      ) {
+        // Try the conditions field directly on the counter offer
+        const conditionsLines = counterOffer.conditions
+          .split(/\n+/)
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0)
+          .map((line: string) => {
+            return line.replace(/^[\d\.\)\-\s]+/, "").trim();
+          })
+          .filter((line: string) => line.length > 0);
+
+        scheduleAConditions = conditionsLines.map((desc: string) => ({
+          description: desc,
+          dueDate: null,
+        }));
+
+        if (scheduleAConditions.length > 0) {
+          console.log(
+            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer conditions field`
+          );
+        }
+      }
+    }
+
+    // Create OfferCondition records if conditions exist (same as regular offer flow)
+    if (scheduleAConditions.length > 0) {
+      await this.createOfferConditions(counterOfferId, scheduleAConditions);
+    }
+
+    // Check for pending conditions to determine final status
+    const pendingConditions = await this.prisma.offerCondition.findMany({
+      where: {
+        offerId: counterOfferId,
+        status: "PENDING",
       },
     });
 
-    console.log(`✅ Counter-offer ${counterOfferId} accepted by buyer`);
+    const hasPendingConditions = pendingConditions.length > 0;
+    const newStatus = hasPendingConditions
+      ? OfferStatus.CONDITIONALLY_ACCEPTED
+      : OfferStatus.ACCEPTED;
 
-    // 5. Update the message with the offer ID
+    // 5. Update the counter-offer status based on conditions
+    const updatedOffer = await this.prisma.offer.update({
+      where: { id: counterOfferId },
+      data: {
+        status: newStatus,
+        buyerSignedAt: new Date(),
+        conditionallyAcceptedAt: hasPendingConditions ? new Date() : undefined,
+        acceptedAt: hasPendingConditions ? undefined : new Date(),
+      },
+    });
+
+    if (hasPendingConditions) {
+      console.log(
+        `📋 Counter-offer ${counterOfferId} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`
+      );
+    } else {
+      console.log(
+        `✅ Counter-offer ${counterOfferId} marked as ACCEPTED (no conditions)`
+      );
+    }
+
+    // 6. Update the message with the offer ID
     await this.prisma.message.update({
       where: { id: messageId },
       data: {
@@ -1767,7 +1876,7 @@ ${counterOffer.sellerName || "The Seller"}`;
       },
     });
 
-    // 6. Update thread's active offer
+    // 7. Update thread's active offer
     await this.prisma.thread.update({
       where: { id: counterOffer.threadId },
       data: {
@@ -1775,11 +1884,15 @@ ${counterOffer.sellerName || "The Seller"}`;
       },
     });
 
-    console.log(`✅ Counter-offer acceptance processed successfully`);
+    console.log(
+      `✅ Counter-offer acceptance processed successfully (status: ${newStatus})`
+    );
 
     return {
       success: true,
-      message: "Counter-offer accepted successfully",
+      message: hasPendingConditions
+        ? `Counter-offer conditionally accepted with ${pendingConditions.length} pending condition(s)`
+        : "Counter-offer accepted successfully",
       offer: updatedOffer,
     };
   }

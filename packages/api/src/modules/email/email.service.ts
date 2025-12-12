@@ -584,6 +584,43 @@ export class EmailService {
       }
     }
 
+    // 7.7. Check if there's already an ACCEPTED or CONDITIONALLY_ACCEPTED offer for this listing+sender
+    // If so, we should NOT try to create a new offer - treat incoming emails as post-acceptance communication
+    const existingAcceptedOffer = await this.prisma.offer.findFirst({
+      where: {
+        thread: {
+          listingId: listing.id,
+          senderId: sender.id,
+        },
+        status: {
+          in: ["ACCEPTED", "CONDITIONALLY_ACCEPTED"],
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    if (existingAcceptedOffer) {
+      console.log(
+        `🔒 Found existing ${existingAcceptedOffer.status} offer (${existingAcceptedOffer.id}) - treating incoming email as post-acceptance communication`
+      );
+
+      // Update message classification to indicate this is post-acceptance communication
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: {
+          subCategory: "GENERAL", // Or could create a new subCategory like "POST_ACCEPTANCE"
+        },
+      });
+
+      // Update thread to maintain OFFER category (it's still part of the offer workflow)
+      console.log(
+        "✅ Email processed as post-acceptance communication (no new offer created)"
+      );
+      return;
+    }
+
     // 8. Classify message (hybrid: heuristics + AI if needed)
     // Now enhanced with document analysis results for better accuracy
     console.log("🤖 Classifying message...");

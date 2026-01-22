@@ -1,38 +1,39 @@
 export enum MessageDirection {
-  INBOUND = 'INBOUND',   // From buyer agent to seller
-  OUTBOUND = 'OUTBOUND', // From seller to buyer agent
+  INBOUND = "INBOUND", // From buyer agent to seller
+  OUTBOUND = "OUTBOUND", // From seller to buyer agent
 }
 
 export enum MessageCategory {
-  OFFER = 'OFFER',
-  SHOWING = 'SHOWING',
-  GENERAL = 'GENERAL',
+  OFFER = "OFFER",
+  SHOWING = "SHOWING",
+  GENERAL = "GENERAL",
 }
 
 export enum MessageSubCategory {
-  NEW_OFFER = 'NEW_OFFER',
-  UPDATED_OFFER = 'UPDATED_OFFER',
-  VIEWING_REQUEST = 'VIEWING_REQUEST',
-  AMENDMENT = 'AMENDMENT',
-  GENERAL = 'GENERAL',
+  NEW_OFFER = "NEW_OFFER",
+  UPDATED_OFFER = "UPDATED_OFFER",
+  VIEWING_REQUEST = "VIEWING_REQUEST",
+  AMENDMENT = "AMENDMENT",
+  GENERAL = "GENERAL",
 }
 
 export enum MessageStatus {
-  PENDING = 'PENDING',     // Message created but not yet sent
-  SENT = 'SENT',           // Successfully sent via email
-  FAILED = 'FAILED',       // Failed to send via email
-  DELIVERED = 'DELIVERED', // Confirmed delivery (future: webhook from Mailgun)
+  PENDING = "PENDING", // Message created but not yet sent
+  SENT = "SENT", // Successfully sent via email
+  FAILED = "FAILED", // Failed to send via email
+  DELIVERED = "DELIVERED", // Confirmed delivery (future: webhook from Mailgun)
 }
 
 export enum OfferStatus {
-  PENDING_REVIEW = 'PENDING_REVIEW', // Seller hasn't reviewed yet
-  AWAITING_SELLER_SIGNATURE = 'AWAITING_SELLER_SIGNATURE', // Seller accepted, waiting for signature
-  AWAITING_BUYER_SIGNATURE = 'AWAITING_BUYER_SIGNATURE', // Counter-offer sent, waiting for buyer signature
-  ACCEPTED = 'ACCEPTED', // Fully signed and accepted
-  DECLINED = 'DECLINED', // Seller declined
-  COUNTERED = 'COUNTERED', // Seller sent counter-offer
-  EXPIRED = 'EXPIRED', // Offer expired
-  SUPERSEDED = 'SUPERSEDED', // Replaced by a newer offer from the same buyer
+  PENDING_REVIEW = "PENDING_REVIEW", // Seller hasn't reviewed yet
+  AWAITING_SELLER_SIGNATURE = "AWAITING_SELLER_SIGNATURE", // Seller accepted, waiting for signature
+  AWAITING_BUYER_SIGNATURE = "AWAITING_BUYER_SIGNATURE", // Counter-offer sent, waiting for buyer signature
+  CONDITIONALLY_ACCEPTED = "CONDITIONALLY_ACCEPTED", // Accepted with conditions
+  ACCEPTED = "ACCEPTED", // Fully signed and accepted
+  DECLINED = "DECLINED", // Seller declined
+  COUNTERED = "COUNTERED", // Seller sent counter-offer
+  EXPIRED = "EXPIRED", // Offer expired
+  SUPERSEDED = "SUPERSEDED", // Replaced by a newer offer from the same buyer
 }
 
 export interface Message {
@@ -110,6 +111,14 @@ export interface DocumentAnalysis {
   textContent?: string | null; // Extracted text from PDF
   pageCount?: number | null;
   createdAt: Date;
+
+  // Validation fields (for OREA form validation)
+  validationStatus?: string | null;
+  validationErrors?: any | null;
+  hasRequiredSignatures?: boolean | null;
+  hasSellerSignatures?: boolean | null;
+  priceMatchesExtracted?: boolean | null;
+  formFieldsExtracted?: any | null;
 }
 
 // ============================================================
@@ -121,29 +130,42 @@ export interface Offer {
   threadId: string;
   messageId: string; // The message that contained this offer
   status: OfferStatus;
-  
+
   // Offer Details (extracted from documents)
   price?: number | null;
   deposit?: number | null;
   closingDate?: Date | null;
   conditions?: string | null;
   expiryDate?: Date | null;
-  
+
   // Document references
   originalDocumentS3Key?: string | null; // Original unsigned offer from buyer agent
   signedDocumentS3Key?: string | null; // Signed document after acceptance
   counterOfferDocumentS3Key?: string | null; // Counter-offer document if sent
-  
+
   // Dropbox Sign tracking
   hellosignSignatureRequestId?: string | null; // Dropbox Sign signature request ID
   sellerSignedAt?: Date | null;
   buyerSignedAt?: Date | null;
-  
+
   // Metadata
   declineReason?: string | null;
+  dateValidationStatus?: "passed" | "warnings" | "failed" | null;
+  dateValidationIssues?: Array<{
+    field: string;
+    severity: "error" | "warning";
+    message: string;
+  }> | null;
+  validationStatus?: "passed" | "warnings" | "failed" | null;
+  validationIssues?: Array<{
+    field: string;
+    severity: "error" | "warning";
+    message: string;
+    category: "date" | "required" | "address" | "financial" | "confidence";
+  }> | null;
   createdAt: Date;
   updatedAt: Date;
-  
+
   // Relations (populated when fetching offers with includes)
   messages?: OfferMessage[];
   offerConditions?: Array<{
@@ -198,4 +220,3 @@ export interface CounterOfferDto {
     name: string;
   };
 }
-

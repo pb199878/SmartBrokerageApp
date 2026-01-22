@@ -84,7 +84,7 @@ export class DocumentsService {
     private apsParserService: ApsParserService,
     private orea124ParserService: Orea124ParserService,
     private pdfToImageService: PdfToImageService,
-    private signatureDetectorService: SignatureDetectorService
+    private signatureDetectorService: SignatureDetectorService,
   ) {}
 
   /**
@@ -119,7 +119,7 @@ export class DocumentsService {
       const pageCount = pdfData.numpages;
 
       console.log(
-        `📝 Extracted ${textContent.length} characters from ${pageCount} pages`
+        `📝 Extracted ${textContent.length} characters from ${pageCount} pages`,
       );
 
       // Detect OREA form
@@ -131,6 +131,7 @@ export class DocumentsService {
       let validationStatus: string | undefined;
       let validationErrors: any = undefined;
       let hasRequiredSignatures: boolean | undefined;
+      let hasSellerSignatures: boolean | undefined;
       let priceMatchesExtracted: boolean | undefined;
 
       if (oreaDetection.isOREAForm) {
@@ -138,18 +139,17 @@ export class DocumentsService {
           // Check if this is a Form 124 (Notice of Fulfillment)
           if (oreaDetection.formType?.includes("Form 124")) {
             console.log(
-              "🔍 Using OREA 124 parser for fulfillment extraction..."
+              "🔍 Using OREA 124 parser for fulfillment extraction...",
             );
 
-            const orea124Result = await this.orea124ParserService.parseOrea124(
-              pdfBuffer
-            );
+            const orea124Result =
+              await this.orea124ParserService.parseOrea124(pdfBuffer);
 
             // Store the OREA 124 result in formFieldsExtracted
             formFieldsExtracted = orea124Result;
 
             console.log(
-              `✅ OREA 124 parsing complete: ${orea124Result.fulfilledConditions.length} condition(s) fulfilled`
+              `✅ OREA 124 parsing complete: ${orea124Result.fulfilledConditions.length} condition(s) fulfilled`,
             );
 
             // Mark as validated if parsing succeeded
@@ -175,7 +175,7 @@ export class DocumentsService {
               !!apsResult.price_and_deposit?.purchase_price?.numeric;
 
             console.log(
-              `✅ Text extraction complete. Strategy: ${apsResult.strategyUsed}`
+              `✅ Text extraction complete. Strategy: ${apsResult.strategyUsed}`,
             );
 
             // Step 2: Check buyer initials using image analysis
@@ -187,45 +187,45 @@ export class DocumentsService {
                 {
                   maxPages: 15,
                   quality: 90,
-                }
+                },
               );
 
               if (images.length > 0) {
                 const initialsCheck =
                   await this.signatureDetectorService.checkBuyerInitials(
-                    images
+                    images,
                   );
 
-                // Set hasRequiredSignatures based on initials check
-                // Require ALL 5 pages (1, 2, 3, 4, 6) to have initials
+                // Update: Also check for seller initials (Clean Offer Validation)
+                console.log("Checking for seller initials...");
+                const sellerInitialsCheck =
+                  await this.signatureDetectorService.checkSellerInitials(
+                    images,
+                  );
+                hasSellerSignatures = sellerInitialsCheck.hasSellerInitials;
+
+                console.log(
+                  `✅ Initials check complete: Buyer ${initialsCheck.totalInitialsFound}/5, Seller ${sellerInitialsCheck.totalSellerInitialsFound}/5 (Clean Offer: ${!hasSellerSignatures})`,
+                );
+
+                // Check standard buyer signature requirements
                 hasRequiredSignatures = initialsCheck.allInitialsPresent;
 
-                // Set validation status based ONLY on initials presence
+                // Set validation status base (existing logic)
                 if (initialsCheck.allInitialsPresent) {
                   validationStatus = "passed";
                 } else {
                   validationStatus = "failed";
                 }
 
-                console.log(
-                  `✅ Initials check complete: ${
-                    initialsCheck.totalInitialsFound
-                  }/5 pages (${hasRequiredSignatures ? "VALID" : "MISSING"})`
-                );
-
-                // Log which pages are missing initials
+                // Log findings
                 if (!hasRequiredSignatures) {
                   const missingPages = initialsCheck.pageResults
                     .filter((p) => !p.hasInitials)
                     .map((p) => p.pageNumber);
-                  console.log(
-                    `   ⚠️  Missing initials on pages: ${missingPages.join(
-                      ", "
-                    )}`
-                  );
                   validationErrors = [
                     `Missing buyer initials on pages: ${missingPages.join(
-                      ", "
+                      ", ",
                     )}`,
                   ];
                 }
@@ -236,7 +236,7 @@ export class DocumentsService {
             } catch (imageError: any) {
               console.log(
                 "⚠️  Image-based initials check failed:",
-                imageError.message
+                imageError.message,
               );
               validationStatus = "not_validated";
             }
@@ -256,7 +256,7 @@ export class DocumentsService {
         attachment.filename,
         textContent,
         oreaDetection.isOREAForm,
-        pageCount
+        pageCount,
       );
 
       // Create document analysis record
@@ -276,6 +276,7 @@ export class DocumentsService {
           validationStatus,
           validationErrors,
           hasRequiredSignatures,
+          hasSellerSignatures: hasSellerSignatures, // New field
           priceMatchesExtracted,
           formFieldsExtracted: formFieldsExtracted
             ? JSON.parse(JSON.stringify(formFieldsExtracted))
@@ -292,7 +293,7 @@ export class DocumentsService {
       console.log(
         `✅ Document analysis complete: ${
           oreaDetection.formType || "Unknown document"
-        }`
+        }`,
       );
 
       return analysis;
@@ -312,7 +313,7 @@ export class DocumentsService {
       const textResult = await parser.getText();
 
       console.log(
-        `📄 Extracted ${textResult.text.length} characters from ${textResult.total} pages using pdf-parse`
+        `📄 Extracted ${textResult.text.length} characters from ${textResult.total} pages using pdf-parse`,
       );
 
       // Get metadata
@@ -337,7 +338,7 @@ export class DocumentsService {
     const signedUrl = await this.supabaseService.getSignedUrl(
       "attachments",
       s3Key,
-      300
+      300,
     ); // 5 min
 
     // Download PDF
@@ -604,7 +605,7 @@ export class DocumentsService {
 
     // Extract closing date (various formats)
     const closingMatch = textContent.match(
-      /completion date.*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4})/i
+      /completion date.*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4})/i,
     );
     if (closingMatch) {
       data.closingDate = closingMatch[1];
@@ -613,7 +614,7 @@ export class DocumentsService {
     // Extract expiry date (irrevocable date on OREA forms)
     // Common patterns: "irrevocable", "expires", "expiry", "valid until"
     const expiryMatch = textContent.match(
-      /(?:irrevocable|expir(?:y|es)|valid until).*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+      /(?:irrevocable|expir(?:y|es)|valid until).*?(\d{4}-\d{2}-\d{2}|\w+ \d{1,2},? \d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
     );
     if (expiryMatch) {
       data.expiryDate = expiryMatch[1];
@@ -646,7 +647,7 @@ export class DocumentsService {
 
     // Extract property address
     const addressMatch = textContent.match(
-      /property.*?([\d]+\s+[\w\s]+(?:street|st|avenue|ave|road|rd|drive|dr|blvd|boulevard|lane|ln|court|ct))/i
+      /property.*?([\d]+\s+[\w\s]+(?:street|st|avenue|ave|road|rd|drive|dr|blvd|boulevard|lane|ln|court|ct))/i,
     );
     if (addressMatch) {
       data.propertyAddress = addressMatch[1].trim();
@@ -662,7 +663,7 @@ export class DocumentsService {
     filename: string,
     textContent: string,
     isOREAForm: boolean,
-    pageCount: number
+    pageCount: number,
   ): number {
     let score = 0;
 
@@ -746,7 +747,7 @@ export class DocumentsService {
    * for backward compatibility with existing database schema
    */
   private convertApsResultToLegacyFormat(
-    apsResult: ApsParseResult
+    apsResult: ApsParseResult,
   ): ExtractedOfferData {
     const data: ExtractedOfferData = {};
 

@@ -6,7 +6,14 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from "react-native";
-import { Text, Button, Chip, Surface, ActivityIndicator, Divider } from "react-native-paper";
+import {
+  Text,
+  Button,
+  Chip,
+  Surface,
+  ActivityIndicator,
+  Divider,
+} from "react-native-paper";
 import {
   useRoute,
   useNavigation,
@@ -17,7 +24,11 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offersApi, attachmentsApi } from "../services/api";
 import type { RootStackParamList } from "../navigation/AppNavigator";
-import { OfferStatus, OfferConditionStatus, ApsParseResult } from "@smart-brokerage/shared";
+import {
+  OfferStatus,
+  OfferConditionStatus,
+  ApsParseResult,
+} from "@smart-brokerage/shared";
 import { Ionicons } from "@expo/vector-icons";
 
 type OfferDetailRouteProp = RouteProp<RootStackParamList, "OfferDetail">;
@@ -59,34 +70,94 @@ function getDaysUntil(dateValue: any): number | null {
   return Math.ceil((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function getStatusConfig(status: OfferStatus): { 
-  color: string; 
-  bgColor: string; 
-  label: string; 
+function getStatusConfig(status: OfferStatus): {
+  color: string;
+  bgColor: string;
+  label: string;
   icon: string;
   headerBg: string;
 } {
   switch (status) {
     case OfferStatus.PENDING_REVIEW:
-      return { color: "#D97706", bgColor: "#FEF3C7", label: "Pending Review", icon: "time-outline", headerBg: "#F59E0B" };
+      return {
+        color: "#D97706",
+        bgColor: "#FEF3C7",
+        label: "Pending Review",
+        icon: "time-outline",
+        headerBg: "#F59E0B",
+      };
     case OfferStatus.AWAITING_SELLER_SIGNATURE:
-      return { color: "#2563EB", bgColor: "#DBEAFE", label: "Awaiting Your Signature", icon: "create-outline", headerBg: "#3B82F6" };
+      return {
+        color: "#2563EB",
+        bgColor: "#DBEAFE",
+        label: "Awaiting Your Signature",
+        icon: "create-outline",
+        headerBg: "#3B82F6",
+      };
     case OfferStatus.AWAITING_BUYER_SIGNATURE:
-      return { color: "#7C3AED", bgColor: "#EDE9FE", label: "Awaiting Buyer Signature", icon: "hourglass-outline", headerBg: "#8B5CF6" };
+      return {
+        color: "#7C3AED",
+        bgColor: "#EDE9FE",
+        label: "Awaiting Buyer Signature",
+        icon: "hourglass-outline",
+        headerBg: "#8B5CF6",
+      };
     case OfferStatus.CONDITIONALLY_ACCEPTED:
-      return { color: "#059669", bgColor: "#D1FAE5", label: "Conditionally Accepted", icon: "checkmark-circle-outline", headerBg: "#10B981" };
+      return {
+        color: "#059669",
+        bgColor: "#D1FAE5",
+        label: "Conditionally Accepted",
+        icon: "checkmark-circle-outline",
+        headerBg: "#10B981",
+      };
     case OfferStatus.ACCEPTED:
-      return { color: "#059669", bgColor: "#D1FAE5", label: "Accepted", icon: "checkmark-done-circle-outline", headerBg: "#059669" };
+      return {
+        color: "#059669",
+        bgColor: "#D1FAE5",
+        label: "Accepted",
+        icon: "checkmark-done-circle-outline",
+        headerBg: "#059669",
+      };
     case OfferStatus.DECLINED:
-      return { color: "#DC2626", bgColor: "#FEE2E2", label: "Declined", icon: "close-circle-outline", headerBg: "#EF4444" };
+      return {
+        color: "#DC2626",
+        bgColor: "#FEE2E2",
+        label: "Declined",
+        icon: "close-circle-outline",
+        headerBg: "#EF4444",
+      };
     case OfferStatus.COUNTERED:
-      return { color: "#EA580C", bgColor: "#FFEDD5", label: "Countered", icon: "swap-horizontal-outline", headerBg: "#F97316" };
+      return {
+        color: "#EA580C",
+        bgColor: "#FFEDD5",
+        label: "Countered",
+        icon: "swap-horizontal-outline",
+        headerBg: "#F97316",
+      };
     case OfferStatus.EXPIRED:
-      return { color: "#6B7280", bgColor: "#F3F4F6", label: "Expired", icon: "timer-outline", headerBg: "#6B7280" };
+      return {
+        color: "#6B7280",
+        bgColor: "#F3F4F6",
+        label: "Expired",
+        icon: "timer-outline",
+        headerBg: "#6B7280",
+      };
     case OfferStatus.SUPERSEDED:
-      return { color: "#6B7280", bgColor: "#F3F4F6", label: "Superseded", icon: "layers-outline", headerBg: "#6B7280" };
+      return {
+        color: "#6B7280",
+        bgColor: "#F3F4F6",
+        label: "Superseded",
+        icon: "layers-outline",
+        headerBg: "#6B7280",
+      };
     default:
-      return { color: "#6B7280", bgColor: "#F3F4F6", label: status, icon: "help-circle-outline", headerBg: "#6B7280" };
+      return {
+        color: "#6B7280",
+        bgColor: "#F3F4F6",
+        label: status,
+        icon: "help-circle-outline",
+        headerBg: "#6B7280",
+      };
   }
 }
 
@@ -129,7 +200,7 @@ function extractBuyerDetailsFromOffer(offer: any) {
     ?.find(
       (att: any) =>
         att.documentAnalysis?.formFieldsExtracted ||
-        att.documentAnalysis?.extractedData
+        att.documentAnalysis?.extractedData,
     );
 
   const documentAnalysis = attachment?.documentAnalysis;
@@ -202,7 +273,12 @@ export default function OfferDetailScreen() {
   const { offerId, listingId } = route.params;
 
   // Fetch offer with conditions - poll every 10 seconds
-  const { data: offer, isLoading, refetch, isRefetching } = useQuery({
+  const {
+    data: offer,
+    isLoading,
+    refetch,
+    isRefetching,
+  } = useQuery({
     queryKey: ["offer", offerId],
     queryFn: () => offersApi.get(offerId),
     refetchInterval: 10000, // Poll every 10 seconds
@@ -219,38 +295,48 @@ export default function OfferDetailScreen() {
         offerId,
         threadId: offer?.threadId,
         senderName: (offer as any)?.thread?.sender?.name,
-        signingType: 'accept',
+        signingType: "accept",
       });
     },
   });
 
   const offerWithThread = offer as typeof offer & {
-    thread?: { 
+    thread?: {
       sender?: { name?: string; email: string; brokerage?: string };
       listingId?: string;
       listing?: { address?: string };
     };
   };
 
-  const statusConfig = offer ? getStatusConfig(offer.status as OfferStatus) : null;
-  
+  const statusConfig = offer
+    ? getStatusConfig(offer.status as OfferStatus)
+    : null;
+
   const allConditions = offer?.offerConditions || [];
-  const pendingConditions = allConditions.filter((c: any) => c.status === OfferConditionStatus.PENDING);
-  const completedConditions = allConditions.filter((c: any) => c.status === OfferConditionStatus.COMPLETED);
+  const pendingConditions = allConditions.filter(
+    (c: any) => c.status === OfferConditionStatus.PENDING,
+  );
+  const completedConditions = allConditions.filter(
+    (c: any) => c.status === OfferConditionStatus.COMPLETED,
+  );
 
   // Navigation handlers
   const handleGoToThread = () => {
     if (!offer?.threadId) return;
-    const senderName = offerWithThread?.thread?.sender?.name || 
-                       offerWithThread?.thread?.sender?.email || 
-                       "Agent";
+    const senderName =
+      offerWithThread?.thread?.sender?.name ||
+      offerWithThread?.thread?.sender?.email ||
+      "Agent";
     navigation.navigate("Chat", {
       threadId: offer.threadId,
       senderName,
     });
   };
 
-  const handleViewDocument = async (attachmentId: string, filename?: string) => {
+  const handleViewDocument = async (
+    attachmentId: string,
+    filename?: string,
+  ) => {
     navigation.navigate("DocumentViewer", { attachmentId, filename });
   };
 
@@ -265,20 +351,23 @@ export default function OfferDetailScreen() {
     // Extract buyer details from document analysis (same logic as ChatScreen)
     const extractedDetails = extractBuyerDetailsFromOffer(offer);
 
-              // TODO: Get seller email/name from user context or listing
-              // For now, use a valid placeholder email - ApsReviewScreen will validate it's not empty
-              // In production, this should come from authenticated user context
-              navigation.navigate("ApsReview", {
-                offerId: offer.id,
-                listingId: effectiveListingId,
-                sellerEmail: "seller@example.com", // TODO: Get from user context/auth - required for signing
-                sellerName: "Seller Name", // TODO: Get from user context/auth - required for signing
-                buyerDetails: {
+    // TODO: Get seller email/name from user context or listing
+    // For now, use a valid placeholder email - ApsReviewScreen will validate it's not empty
+    // In production, this should come from authenticated user context
+    navigation.navigate("ApsReview", {
+      offerId: offer.id,
+      listingId: effectiveListingId,
+      sellerEmail: "seller@example.com", // TODO: Get from user context/auth - required for signing
+      sellerName: "Seller Name", // TODO: Get from user context/auth - required for signing
+      buyerDetails: {
         purchasePrice: offer.price || 0,
         deposit: offer.deposit || 0,
-        depositDue: extractedDetails.depositDue || "Within 24 hours of acceptance",
+        depositDue:
+          extractedDetails.depositDue || "Within 24 hours of acceptance",
         closingDate: safeParseDate(offer.closingDate),
-        possessionDate: safeParseDate(extractedDetails.possessionDate || offer.closingDate),
+        possessionDate: safeParseDate(
+          extractedDetails.possessionDate || offer.closingDate,
+        ),
         conditions: offer.conditions || "None",
         inclusions: extractedDetails.inclusions || "Not specified",
         buyerName: extractedDetails.buyerName || "Not specified",
@@ -289,12 +378,18 @@ export default function OfferDetailScreen() {
 
   const handleDeclineOffer = () => {
     if (!offer) return;
-    navigation.navigate("OfferAction", { offerId: offer.id, action: "decline" });
+    navigation.navigate("OfferAction", {
+      offerId: offer.id,
+      action: "decline",
+    });
   };
 
   const handleCounterOffer = () => {
     if (!offer) return;
-    navigation.navigate("OfferAction", { offerId: offer.id, action: "counter" });
+    navigation.navigate("OfferAction", {
+      offerId: offer.id,
+      action: "counter",
+    });
   };
 
   const handleContinueToSign = () => {
@@ -324,8 +419,10 @@ export default function OfferDetailScreen() {
   }
 
   const isPending = offer.status === OfferStatus.PENDING_REVIEW;
-  const isAwaitingSignature = offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
-  const isConditionallyAccepted = offer.status === OfferStatus.CONDITIONALLY_ACCEPTED;
+  const isAwaitingSignature =
+    offer.status === OfferStatus.AWAITING_SELLER_SIGNATURE;
+  const isConditionallyAccepted =
+    offer.status === OfferStatus.CONDITIONALLY_ACCEPTED;
   const isAccepted = offer.status === OfferStatus.ACCEPTED;
   const isDeclined = offer.status === OfferStatus.DECLINED;
   const canTakeAction = isPending || isAwaitingSignature;
@@ -333,7 +430,12 @@ export default function OfferDetailScreen() {
   return (
     <View style={styles.container}>
       {/* Status Header */}
-      <View style={[styles.statusHeader, { backgroundColor: statusConfig.headerBg }]}>
+      <View
+        style={[
+          styles.statusHeader,
+          { backgroundColor: statusConfig.headerBg },
+        ]}
+      >
         <View style={styles.statusIconContainer}>
           <Ionicons name={statusConfig.icon as any} size={32} color="#fff" />
         </View>
@@ -353,6 +455,71 @@ export default function OfferDetailScreen() {
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
         }
       >
+        {/* Validation Warnings */}
+        {(offer.validationStatus === "warnings" ||
+          offer.validationStatus === "failed" ||
+          offer.dateValidationStatus === "warnings" ||
+          offer.dateValidationStatus === "failed") && (
+          <Surface style={[styles.card, styles.validationCard]} elevation={2}>
+            <View style={styles.cardHeader}>
+              <Ionicons
+                name="warning-outline"
+                size={20}
+                color={
+                  offer.validationStatus === "failed" ||
+                  offer.dateValidationStatus === "failed"
+                    ? "#DC2626"
+                    : "#D97706"
+                }
+              />
+              <Text
+                style={[
+                  styles.cardTitle,
+                  {
+                    color:
+                      offer.validationStatus === "failed" ||
+                      offer.dateValidationStatus === "failed"
+                        ? "#DC2626"
+                        : "#D97706",
+                  },
+                ]}
+              >
+                Attention Needed
+              </Text>
+            </View>
+
+            <View style={styles.validationIssuesList}>
+              {(offer.validationIssues || offer.dateValidationIssues || []).map(
+                (issue: any, index: number) => {
+                  let iconName = "alert-circle";
+                  if (issue.category === "date") iconName = "calendar";
+                  else if (issue.category === "required")
+                    iconName = "alert-circle";
+                  else if (issue.category === "address") iconName = "location";
+                  else if (issue.category === "financial") iconName = "cash";
+                  else if (issue.category === "confidence")
+                    iconName = "document-text";
+
+                  return (
+                    <View key={index} style={styles.validationIssueRow}>
+                      <Ionicons
+                        name={iconName}
+                        size={16}
+                        color={
+                          issue.severity === "error" ? "#DC2626" : "#D97706"
+                        }
+                      />
+                      <Text style={styles.validationIssueText}>
+                        {issue.message}
+                      </Text>
+                    </View>
+                  );
+                },
+              )}
+            </View>
+          </Surface>
+        )}
+
         {/* Buyer Agent Info */}
         <Surface style={styles.card} elevation={2}>
           <View style={styles.cardHeader}>
@@ -380,15 +547,19 @@ export default function OfferDetailScreen() {
             <Ionicons name="document-text-outline" size={20} color="#6B7280" />
             <Text style={styles.cardTitle}>Offer Details</Text>
           </View>
-          
+
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Purchase Price</Text>
-              <Text style={styles.summaryValueLarge}>{formatCurrency(offer.price)}</Text>
+              <Text style={styles.summaryValueLarge}>
+                {formatCurrency(offer.price)}
+              </Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Closing Date</Text>
-              <Text style={styles.summaryValue}>{formatDate(offer.closingDate)}</Text>
+              <Text style={styles.summaryValue}>
+                {formatDate(offer.closingDate)}
+              </Text>
             </View>
           </View>
 
@@ -397,15 +568,19 @@ export default function OfferDetailScreen() {
           <View style={styles.detailsGrid}>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Deposit</Text>
-              <Text style={styles.detailValue}>{formatCurrency(offer.deposit)}</Text>
+              <Text style={styles.detailValue}>
+                {formatCurrency(offer.deposit)}
+              </Text>
             </View>
             {offer.expiryDate && (
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Expiry Date</Text>
-                <Text style={[
-                  styles.detailValue,
-                  getDaysUntil(offer.expiryDate)! < 0 && styles.expiredText
-                ]}>
+                <Text
+                  style={[
+                    styles.detailValue,
+                    getDaysUntil(offer.expiryDate)! < 0 && styles.expiredText,
+                  ]}
+                >
                   {formatDate(offer.expiryDate)}
                 </Text>
               </View>
@@ -413,7 +588,9 @@ export default function OfferDetailScreen() {
             {offer.createdAt && (
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Received</Text>
-                <Text style={styles.detailValue}>{formatDate(offer.createdAt)}</Text>
+                <Text style={styles.detailValue}>
+                  {formatDate(offer.createdAt)}
+                </Text>
               </View>
             )}
           </View>
@@ -428,11 +605,16 @@ export default function OfferDetailScreen() {
               <Chip
                 style={[
                   styles.conditionCountChip,
-                  { backgroundColor: pendingConditions.length > 0 ? "#FEF3C7" : "#D1FAE5" }
+                  {
+                    backgroundColor:
+                      pendingConditions.length > 0 ? "#FEF3C7" : "#D1FAE5",
+                  },
                 ]}
                 textStyle={[
                   styles.conditionCountText,
-                  { color: pendingConditions.length > 0 ? "#D97706" : "#059669" }
+                  {
+                    color: pendingConditions.length > 0 ? "#D97706" : "#059669",
+                  },
                 ]}
               >
                 {completedConditions.length}/{allConditions.length} Complete
@@ -441,38 +623,47 @@ export default function OfferDetailScreen() {
 
             {allConditions.map((condition: any, index: number) => {
               const daysUntil = getDaysUntil(condition.dueDate);
-              const isUrgent = daysUntil !== null && daysUntil <= 3 && daysUntil >= 0;
+              const isUrgent =
+                daysUntil !== null && daysUntil <= 3 && daysUntil >= 0;
               const isOverdue = daysUntil !== null && daysUntil < 0;
-              const isComplete = condition.status === OfferConditionStatus.COMPLETED;
+              const isComplete =
+                condition.status === OfferConditionStatus.COMPLETED;
 
               return (
                 <View
                   key={condition.id}
                   style={[
                     styles.conditionCard,
-                    isComplete && styles.conditionCardComplete
+                    isComplete && styles.conditionCardComplete,
                   ]}
                 >
                   <View style={styles.conditionHeader}>
                     <View style={styles.conditionHeaderLeft}>
-                      <View style={[
-                        styles.conditionNumberContainer,
-                        isComplete && styles.conditionNumberComplete
-                      ]}>
+                      <View
+                        style={[
+                          styles.conditionNumberContainer,
+                          isComplete && styles.conditionNumberComplete,
+                        ]}
+                      >
                         {isComplete ? (
                           <Ionicons name="checkmark" size={14} color="#fff" />
                         ) : (
-                          <Text style={styles.conditionNumber}>{index + 1}</Text>
+                          <Text style={styles.conditionNumber}>
+                            {index + 1}
+                          </Text>
                         )}
                       </View>
                       <Chip
                         style={[
                           styles.statusChip,
-                          { backgroundColor: getConditionStatusColor(condition.status) + "20" }
+                          {
+                            backgroundColor:
+                              getConditionStatusColor(condition.status) + "20",
+                          },
                         ]}
                         textStyle={[
                           styles.statusChipText,
-                          { color: getConditionStatusColor(condition.status) }
+                          { color: getConditionStatusColor(condition.status) },
                         ]}
                       >
                         {getConditionStatusLabel(condition.status)}
@@ -480,48 +671,70 @@ export default function OfferDetailScreen() {
                     </View>
                   </View>
 
-                  <Text style={[
-                    styles.conditionDescription,
-                    isComplete && styles.conditionDescriptionComplete
-                  ]}>
+                  <Text
+                    style={[
+                      styles.conditionDescription,
+                      isComplete && styles.conditionDescriptionComplete,
+                    ]}
+                  >
                     {condition.description}
                   </Text>
 
                   {condition.dueDate && !isComplete && (
                     <View style={styles.dueDateWrapper}>
-                      <View style={[
-                        styles.dueDatePill,
-                        isOverdue ? styles.dueDatePillOverdue :
-                        isUrgent ? styles.dueDatePillUrgent :
-                        styles.dueDatePillNormal
-                      ]}>
+                      <View
+                        style={[
+                          styles.dueDatePill,
+                          isOverdue
+                            ? styles.dueDatePillOverdue
+                            : isUrgent
+                              ? styles.dueDatePillUrgent
+                              : styles.dueDatePillNormal,
+                        ]}
+                      >
                         <Ionicons
                           name="time-outline"
                           size={14}
-                          color={isOverdue ? "#B91C1C" : isUrgent ? "#B45309" : "#4B5563"}
+                          color={
+                            isOverdue
+                              ? "#B91C1C"
+                              : isUrgent
+                                ? "#B45309"
+                                : "#4B5563"
+                          }
                         />
-                        <Text style={[
-                          styles.dueDateText,
-                          isOverdue ? styles.dueDateTextOverdue :
-                          isUrgent ? styles.dueDateTextUrgent :
-                          styles.dueDateTextNormal
-                        ]}>
+                        <Text
+                          style={[
+                            styles.dueDateText,
+                            isOverdue
+                              ? styles.dueDateTextOverdue
+                              : isUrgent
+                                ? styles.dueDateTextUrgent
+                                : styles.dueDateTextNormal,
+                          ]}
+                        >
                           {isOverdue
                             ? `Overdue by ${Math.abs(daysUntil!)} day${Math.abs(daysUntil!) === 1 ? "" : "s"}`
                             : daysUntil === 0
-                            ? "Due Today"
-                            : daysUntil === 1
-                            ? "Due Tomorrow"
-                            : `Due in ${daysUntil} days`}
+                              ? "Due Today"
+                              : daysUntil === 1
+                                ? "Due Tomorrow"
+                                : `Due in ${daysUntil} days`}
                         </Text>
                       </View>
-                      <Text style={styles.dueDateDate}>{formatDate(condition.dueDate)}</Text>
+                      <Text style={styles.dueDateDate}>
+                        {formatDate(condition.dueDate)}
+                      </Text>
                     </View>
                   )}
 
                   {condition.completedAt && isComplete && (
                     <View style={styles.completedAtRow}>
-                      <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={14}
+                        color="#059669"
+                      />
                       <Text style={styles.completedAtText}>
                         Completed on {formatDate(condition.completedAt)}
                       </Text>
@@ -545,7 +758,8 @@ export default function OfferDetailScreen() {
               style={styles.documentRow}
               onPress={() => {
                 // Find attachment ID from offer messages
-                const attachment = (offer as any).messages?.[0]?.attachments?.[0];
+                const attachment = (offer as any).messages?.[0]
+                  ?.attachments?.[0];
                 if (attachment) {
                   handleViewDocument(attachment.id, "Original Offer");
                 }
@@ -565,7 +779,11 @@ export default function OfferDetailScreen() {
           {offer.signedDocumentS3Key && (
             <TouchableOpacity style={styles.documentRow}>
               <View style={styles.documentInfo}>
-                <Ionicons name="document-attach-outline" size={24} color="#059669" />
+                <Ionicons
+                  name="document-attach-outline"
+                  size={24}
+                  color="#059669"
+                />
                 <View>
                   <Text style={styles.documentName}>Signed Agreement</Text>
                   <Text style={styles.documentMeta}>Executed copy</Text>
@@ -578,7 +796,11 @@ export default function OfferDetailScreen() {
           {offer.counterOfferDocumentS3Key && (
             <TouchableOpacity style={styles.documentRow}>
               <View style={styles.documentInfo}>
-                <Ionicons name="swap-horizontal-outline" size={24} color="#F97316" />
+                <Ionicons
+                  name="swap-horizontal-outline"
+                  size={24}
+                  color="#F97316"
+                />
                 <View>
                   <Text style={styles.documentName}>Counter-Offer</Text>
                   <Text style={styles.documentMeta}>Your counter-offer</Text>
@@ -588,20 +810,30 @@ export default function OfferDetailScreen() {
             </TouchableOpacity>
           )}
 
-          {!offer.originalDocumentS3Key && !offer.signedDocumentS3Key && !offer.counterOfferDocumentS3Key && (
-            <View style={styles.noDocuments}>
-              <Ionicons name="document-outline" size={32} color="#D1D5DB" />
-              <Text style={styles.noDocumentsText}>No documents available</Text>
-            </View>
-          )}
+          {!offer.originalDocumentS3Key &&
+            !offer.signedDocumentS3Key &&
+            !offer.counterOfferDocumentS3Key && (
+              <View style={styles.noDocuments}>
+                <Ionicons name="document-outline" size={32} color="#D1D5DB" />
+                <Text style={styles.noDocumentsText}>
+                  No documents available
+                </Text>
+              </View>
+            )}
         </Surface>
 
         {/* Decline Reason (if declined) */}
         {isDeclined && offer.declineReason && (
           <Surface style={[styles.card, styles.declinedCard]} elevation={2}>
             <View style={styles.cardHeader}>
-              <Ionicons name="information-circle-outline" size={20} color="#DC2626" />
-              <Text style={[styles.cardTitle, { color: "#DC2626" }]}>Decline Reason</Text>
+              <Ionicons
+                name="information-circle-outline"
+                size={20}
+                color="#DC2626"
+              />
+              <Text style={[styles.cardTitle, { color: "#DC2626" }]}>
+                Decline Reason
+              </Text>
             </View>
             <Text style={styles.declineReasonText}>{offer.declineReason}</Text>
           </Surface>
@@ -1069,5 +1301,23 @@ const styles = StyleSheet.create({
   smallButtonContent: {
     paddingVertical: 2,
   },
+  validationCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#D97706",
+    backgroundColor: "#FFFBEB",
+  },
+  validationIssuesList: {
+    gap: 8,
+  },
+  validationIssueRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  validationIssueText: {
+    fontSize: 14,
+    color: "#374151",
+    flex: 1,
+    lineHeight: 20,
+  },
 });
-

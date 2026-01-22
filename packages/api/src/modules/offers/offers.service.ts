@@ -21,7 +21,7 @@ export class OffersService {
     private supabaseService: SupabaseService,
     private mailgunService: MailgunService,
     private pdfService: PdfService,
-    private configService: ConfigService
+    private configService: ConfigService,
   ) {}
 
   // =============================================================================
@@ -58,7 +58,7 @@ export class OffersService {
    */
   private async findLockingOffer(
     listingId: string,
-    senderId: string
+    senderId: string,
   ): Promise<any | null> {
     const lockingOffer = await this.prisma.offer.findFirst({
       where: {
@@ -95,7 +95,7 @@ export class OffersService {
   private async supersedeActiveOffers(
     listingId: string,
     senderId: string,
-    reason: string
+    reason: string,
   ): Promise<number> {
     // Find all active offers for this listing+buyer pair
     const activeOffers = await this.prisma.offer.findMany({
@@ -118,14 +118,14 @@ export class OffersService {
     }
 
     console.log(
-      `📝 Superseding ${activeOffers.length} active offer(s) for listing ${listingId} / sender ${senderId}`
+      `📝 Superseding ${activeOffers.length} active offer(s) for listing ${listingId} / sender ${senderId}`,
     );
 
     // Supersede each offer and clear activeOfferId from threads
     for (const offer of activeOffers) {
       const offerType = offer.isCounterOffer ? "counter-offer" : "offer";
       console.log(
-        `   Superseding ${offerType} ${offer.id} (status: ${offer.status})`
+        `   Superseding ${offerType} ${offer.id} (status: ${offer.status})`,
       );
 
       await this.prisma.offer.update({
@@ -196,7 +196,7 @@ export class OffersService {
     const senderId = message.thread.senderId;
 
     console.log(
-      `🔍 Checking offer eligibility for listing ${listingId} from sender ${senderId}`
+      `🔍 Checking offer eligibility for listing ${listingId} from sender ${senderId}`,
     );
 
     // =============================================================================
@@ -207,13 +207,13 @@ export class OffersService {
 
     if (lockingOffer) {
       console.log(
-        `🔒 Cannot create new offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
+        `🔒 Cannot create new offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`,
       );
       throw new BadRequestException(
         `Cannot submit new offer: There is already a ${lockingOffer.status
           .toLowerCase()
           .replace("_", " ")} offer for this property. ` +
-          `No further offers are allowed until the current transaction is completed or cancelled.`
+          `No further offers are allowed until the current transaction is completed or cancelled.`,
       );
     }
 
@@ -243,7 +243,7 @@ export class OffersService {
 
       if (existingBuyerOffer) {
         console.log(
-          `📝 Treating as update to existing offer ${existingBuyerOffer.id}`
+          `📝 Treating as update to existing offer ${existingBuyerOffer.id}`,
         );
         return await this.updateExistingOffer(existingBuyerOffer.id, messageId);
       }
@@ -256,7 +256,7 @@ export class OffersService {
     await this.supersedeActiveOffers(
       listingId,
       senderId,
-      "Buyer submitted a new offer, previous offer/counter-offer automatically superseded"
+      "Buyer submitted a new offer, previous offer/counter-offer automatically superseded",
     );
 
     // Extract offer details from document analysis
@@ -266,7 +266,7 @@ export class OffersService {
       .sort(
         (a, b) =>
           (b.documentAnalysis?.relevanceScore || 0) -
-          (a.documentAnalysis?.relevanceScore || 0)
+          (a.documentAnalysis?.relevanceScore || 0),
       )[0];
 
     // Check validation status - auto-reject if failed
@@ -281,7 +281,7 @@ export class OffersService {
 
     if (shouldReject) {
       const validationErrors = Array.isArray(
-        offerAttachment.documentAnalysis.validationErrors
+        offerAttachment.documentAnalysis.validationErrors,
       )
         ? offerAttachment.documentAnalysis.validationErrors
         : [];
@@ -298,10 +298,10 @@ export class OffersService {
       await this.autoRejectInvalidOffer(
         message,
         offerAttachment,
-        validationErrors
+        validationErrors,
       );
       throw new Error(
-        "Offer automatically rejected due to validation failures"
+        "Offer automatically rejected due to validation failures",
       );
     }
 
@@ -321,7 +321,72 @@ export class OffersService {
       expiryDate = new Date();
       expiryDate.setHours(expiryDate.getHours() + 24);
       console.log(
-        `⏰ No expiry date found in document, defaulting to 24 hours: ${expiryDate.toISOString()}`
+        `⏰ No expiry date found in document, defaulting to 24 hours: ${expiryDate.toISOString()}`,
+      );
+    }
+
+    // Validate offer dates to protect sellers
+    // Build conditions array for validation (we'll get full conditions after offer is created)
+    const conditionsForValidation =
+      scheduleAConditions?.map((c: any) => ({
+        dueDate: c.dueDate ? new Date(c.dueDate) : null,
+        description: c.description,
+      })) || [];
+
+    const dateValidation = this.validateOfferDates(
+      closingDate,
+      expiryDate,
+      conditionsForValidation,
+    );
+
+    // Validate offer data (required fields, address match, financial consistency)
+    const listing = message.thread.listing;
+    const offerDataValidation = this.validateOfferData(
+      {
+        price,
+        deposit,
+        buyerName: extractedData.buyerName,
+        propertyAddress: extractedData.propertyAddress,
+        docConfidence:
+          offerAttachment.documentAnalysis?.confidence ?? undefined,
+        hasSellerSignatures:
+          offerAttachment.documentAnalysis?.hasSellerSignatures ?? undefined,
+        isNewOffer: message.subCategory === "NEW_OFFER",
+      },
+      listing.address,
+    );
+
+    // Combine all validation issues with category for date issues
+    const allIssues = [
+      ...dateValidation.issues.map((issue) => ({
+        ...issue,
+        category: "date" as const,
+      })),
+      ...offerDataValidation.issues,
+    ];
+
+    // Determine combined validation status
+    const hasErrors = allIssues.some((i) => i.severity === "error");
+    const hasWarnings = allIssues.some((i) => i.severity === "warning");
+    const combinedStatus = hasErrors
+      ? "failed"
+      : hasWarnings
+        ? "warnings"
+        : "passed";
+
+    // Auto-reject if there are critical errors (dates or data)
+    if (combinedStatus === "failed") {
+      const criticalErrors = allIssues.filter((i) => i.severity === "error");
+      console.log(`❌ Offer has critical validation errors. Auto-rejecting...`);
+
+      await this.autoRejectInvalidOffer(
+        message,
+        offerAttachment,
+        criticalErrors.map((e) => ({ field: e.field, message: e.message })),
+      );
+      throw new Error(
+        "Offer automatically rejected due to validation failures: " +
+          criticalErrors.map((e) => e.message).join("; "),
       );
     }
 
@@ -341,7 +406,7 @@ export class OffersService {
 
     if (supersededCount.count > 0) {
       console.log(
-        `📝 Marked ${supersededCount.count} previous pending offer(s) on thread ${message.threadId} as superseded`
+        `📝 Marked ${supersededCount.count} previous pending offer(s) on thread ${message.threadId} as superseded`,
       );
     }
 
@@ -357,6 +422,10 @@ export class OffersService {
         expiryDate,
         conditions,
         originalDocumentS3Key,
+        dateValidationStatus: dateValidation.status,
+        dateValidationIssues: dateValidation.issues,
+        validationStatus: combinedStatus,
+        validationIssues: allIssues,
       },
     });
 
@@ -393,7 +462,7 @@ export class OffersService {
    */
   private async updateExistingOffer(
     offerId: string,
-    newMessageId: string
+    newMessageId: string,
   ): Promise<any> {
     const newMessage = await this.prisma.message.findUnique({
       where: { id: newMessageId },
@@ -418,7 +487,7 @@ export class OffersService {
       .sort(
         (a, b) =>
           (b.documentAnalysis?.relevanceScore || 0) -
-          (a.documentAnalysis?.relevanceScore || 0)
+          (a.documentAnalysis?.relevanceScore || 0),
       )[0];
 
     // Extract offer data using new helper method (supports both comprehensive and legacy formats)
@@ -524,7 +593,7 @@ export class OffersService {
    */
   private mergeExtractedDataWithIntake(
     offer: any,
-    sellerIntake: ApsIntake
+    sellerIntake: ApsIntake,
   ): ApsIntake {
     // Extract comprehensive data using the same method as mobile
     const extractedData = this.extractOfferDataFromAttachment(
@@ -533,8 +602,8 @@ export class OffersService {
         ?.find(
           (att: any) =>
             att.documentAnalysis?.formFieldsExtracted ||
-            att.documentAnalysis?.extractedData
-        )
+            att.documentAnalysis?.extractedData,
+        ),
     );
 
     // Merge: Start with extracted data, overlay seller's input
@@ -603,7 +672,7 @@ export class OffersService {
   async prepareOfferForSigning(
     offerId: string,
     intake: ApsIntake,
-    seller: { email: string; name: string }
+    seller: { email: string; name: string },
   ): Promise<{ signUrl: string; expiresAt: number }> {
     console.log(`📝 Preparing offer ${offerId} for signing with guided intake`);
 
@@ -620,13 +689,13 @@ export class OffersService {
 
     if (lockingOffer && lockingOffer.id !== offerId) {
       console.log(
-        `🔒 Cannot accept offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
+        `🔒 Cannot accept offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`,
       );
       throw new BadRequestException(
         `Cannot accept offer: There is already a ${lockingOffer.status
           .toLowerCase()
           .replace("_", " ")} offer for this property. ` +
-          `No further acceptances are allowed until the current transaction is completed or cancelled.`
+          `No further acceptances are allowed until the current transaction is completed or cancelled.`,
       );
     }
 
@@ -636,7 +705,7 @@ export class OffersService {
     // Validate offer can be accepted
     if (offer.status !== OfferStatus.PENDING_REVIEW) {
       throw new Error(
-        `Offer cannot be prepared for signing. Current status: ${offer.status}`
+        `Offer cannot be prepared for signing. Current status: ${offer.status}`,
       );
     }
 
@@ -669,7 +738,7 @@ export class OffersService {
 
     if (activeOffers.length > 0) {
       console.log(
-        `📝 Superseding ${activeOffers.length} other active offer(s) before accepting offer`
+        `📝 Superseding ${activeOffers.length} other active offer(s) before accepting offer`,
       );
       for (const activeOffer of activeOffers) {
         await this.prisma.offer.update({
@@ -692,7 +761,7 @@ export class OffersService {
       const buyerPdfUrl = await this.supabaseService.getSignedUrl(
         "attachments",
         offer.originalDocumentS3Key,
-        3600
+        3600,
       );
       const buyerPdf = await this.pdfService.downloadPdfFromUrl(buyerPdfUrl);
 
@@ -700,7 +769,7 @@ export class OffersService {
       const oreaVersion = await this.pdfService.detectOreaVersion(buyerPdf);
       if (!oreaVersion) {
         throw new BadRequestException(
-          "Could not detect OREA version. Please ensure this is a valid OREA APS form."
+          "Could not detect OREA version. Please ensure this is a valid OREA APS form.",
         );
       }
       console.log(`   Detected OREA version: ${oreaVersion}`);
@@ -712,7 +781,7 @@ export class OffersService {
       const preparedPdf = await this.pdfService.prefillSellerData(
         flattenedPdf,
         completeIntake,
-        oreaVersion
+        oreaVersion,
       );
 
       // 5. Upload prepared PDF to Supabase
@@ -723,7 +792,7 @@ export class OffersService {
         "attachments",
         preparedS3Key,
         preparedPdf,
-        "application/pdf"
+        "application/pdf",
       );
       console.log(`   Uploaded prepared PDF to: ${preparedS3Key}`);
 
@@ -751,7 +820,7 @@ export class OffersService {
         });
 
       console.log(
-        `   Created Dropbox Sign request: ${signatureRequest.signatureRequestId}`
+        `   Created Dropbox Sign request: ${signatureRequest.signatureRequestId}`,
       );
 
       // 7. Update offer with all the new data (store complete merged intake)
@@ -774,8 +843,8 @@ export class OffersService {
       console.log(`   Sign URL: ${signatureRequest.signUrl}`);
       console.log(
         `   Expires: ${new Date(
-          signatureRequest.expiresAt * 1000
-        ).toISOString()}`
+          signatureRequest.expiresAt * 1000,
+        ).toISOString()}`,
       );
 
       return {
@@ -802,10 +871,10 @@ export class OffersService {
    * Legacy quick accept method - kept for backwards compatibility
    */
   async acceptOffer(
-    offerId: string
+    offerId: string,
   ): Promise<{ signUrl: string; expiresAt: number }> {
     throw new Error(
-      "Quick accept is no longer supported. Use prepareOfferForSigning() with guided intake instead."
+      "Quick accept is no longer supported. Use prepareOfferForSigning() with guided intake instead.",
     );
   }
 
@@ -813,7 +882,7 @@ export class OffersService {
    * Get signing URL for an offer that's awaiting seller signature
    */
   async getSignUrl(
-    offerId: string
+    offerId: string,
   ): Promise<{ signUrl: string; expiresAt: number }> {
     const offer = await this.getOffer(offerId);
 
@@ -828,7 +897,7 @@ export class OffersService {
 
     // Get the signature request from Dropbox Sign to retrieve the signature_id
     const signatureRequest = await this.dropboxSignService.getSignatureRequest(
-      offer.hellosignSignatureRequestId
+      offer.hellosignSignatureRequestId,
     );
 
     // Find the seller's signature (first signer)
@@ -840,9 +909,8 @@ export class OffersService {
     const signatureId = signatures[0].signature_id;
 
     // Get fresh embedded signing URL
-    const signUrlResponse = await this.dropboxSignService.getEmbeddedSignUrl(
-      signatureId
-    );
+    const signUrlResponse =
+      await this.dropboxSignService.getEmbeddedSignUrl(signatureId);
 
     return {
       signUrl: signUrlResponse.signUrl,
@@ -886,7 +954,7 @@ export class OffersService {
       offer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
     ) {
       throw new Error(
-        `Offer cannot be declined. Current status: ${offer.status}`
+        `Offer cannot be declined. Current status: ${offer.status}`,
       );
     }
 
@@ -909,7 +977,7 @@ export class OffersService {
         offer.thread.listing.address
       }. Unfortunately, we are declining at this time.${
         dto.reason ? `\n\nReason: ${dto.reason}` : ""
-      }`
+      }`,
     );
 
     console.log(`✅ Declined offer ${dto.offerId}`);
@@ -926,7 +994,7 @@ export class OffersService {
    * - A counter-offer is technically a new offer from the seller
    */
   async counterOffer(
-    dto: CounterOfferDto
+    dto: CounterOfferDto,
   ): Promise<{ signUrl: string; expiresAt: number }> {
     console.log(`🔄 Creating counter-offer for original offer ${dto.offerId}`);
 
@@ -967,13 +1035,13 @@ export class OffersService {
 
     if (lockingOffer) {
       console.log(
-        `🔒 Cannot create counter-offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`
+        `🔒 Cannot create counter-offer: There is already a ${lockingOffer.status} offer (${lockingOffer.id}) between this listing and buyer`,
       );
       throw new BadRequestException(
         `Cannot create counter-offer: There is already a ${lockingOffer.status
           .toLowerCase()
           .replace("_", " ")} offer for this property. ` +
-          `No further offers or counter-offers are allowed until the current transaction is completed or cancelled.`
+          `No further offers or counter-offers are allowed until the current transaction is completed or cancelled.`,
       );
     }
 
@@ -983,7 +1051,7 @@ export class OffersService {
       originalOffer.status !== OfferStatus.AWAITING_SELLER_SIGNATURE
     ) {
       throw new BadRequestException(
-        `Offer cannot be countered. Current status: ${originalOffer.status}`
+        `Offer cannot be countered. Current status: ${originalOffer.status}`,
       );
     }
 
@@ -993,12 +1061,12 @@ export class OffersService {
 
     // Check if offer has extracted data
     const hasExtractedData = originalOffer.messages?.some((msg) =>
-      msg.attachments?.some((att) => att.documentAnalysis?.formFieldsExtracted)
+      msg.attachments?.some((att) => att.documentAnalysis?.formFieldsExtracted),
     );
 
     if (!hasExtractedData) {
       console.warn(
-        "⚠️  No extracted data found for original offer, using basic fields"
+        "⚠️  No extracted data found for original offer, using basic fields",
       );
     }
 
@@ -1035,7 +1103,7 @@ export class OffersService {
       // 3. Build template custom fields
       const customFields = this.buildTemplateCustomFields(
         originalOffer,
-        dto.editedFields
+        dto.editedFields,
       );
 
       console.log(`📋 Built ${Object.keys(customFields).length} custom fields`);
@@ -1045,7 +1113,7 @@ export class OffersService {
 
       if (!templateId) {
         throw new Error(
-          "DROPBOX_SIGN_COUNTER_OFFER_TEMPLATE_ID not configured"
+          "DROPBOX_SIGN_COUNTER_OFFER_TEMPLATE_ID not configured",
         );
       }
 
@@ -1059,7 +1127,7 @@ export class OffersService {
             offerId: counterOffer.id,
             type: "counter_offer",
             originalOfferId: originalOffer.id,
-          }
+          },
         );
 
       // 5. Update counter-offer with signature details
@@ -1073,14 +1141,14 @@ export class OffersService {
       });
 
       console.log(
-        `📝 Created Dropbox Sign request: ${signatureResponse.signatureRequestId}`
+        `📝 Created Dropbox Sign request: ${signatureResponse.signatureRequestId}`,
       );
 
       // Note: Original offer will be superseded when the counter-offer is sent
       // (in sendCounterOfferToAgent) - only one active offer allowed at a time
 
       console.log(
-        `✅ Counter-offer created successfully. Signature URL ready for seller.`
+        `✅ Counter-offer created successfully. Signature URL ready for seller.`,
       );
 
       // 7. Return signing URL
@@ -1096,7 +1164,7 @@ export class OffersService {
 
       console.error(`❌ Failed to create counter-offer: ${error.message}`);
       throw new BadRequestException(
-        `Failed to create counter-offer: ${error.message}`
+        `Failed to create counter-offer: ${error.message}`,
       );
     }
   }
@@ -1108,7 +1176,7 @@ export class OffersService {
     // Log full payload for debugging
     console.log(
       "📝 Dropbox Sign webhook payload:",
-      JSON.stringify(payload, null, 2)
+      JSON.stringify(payload, null, 2),
     );
 
     // Dropbox Sign sends event data directly in payload, not nested under 'event'
@@ -1143,7 +1211,7 @@ export class OffersService {
       const isValid = this.dropboxSignService.verifyWebhookSignature(
         eventTime,
         eventType,
-        eventHash
+        eventHash,
       );
 
       if (!isValid) {
@@ -1169,7 +1237,7 @@ export class OffersService {
 
     if (!offer) {
       console.warn(
-        `No offer found for signature request ${signatureRequestId}`
+        `No offer found for signature request ${signatureRequestId}`,
       );
       return;
     }
@@ -1216,7 +1284,7 @@ export class OffersService {
    */
   private async handleSignatureCompleted(
     offer: any,
-    signatureRequest: any
+    signatureRequest: any,
   ): Promise<void> {
     console.log(`✅ Signature completed for offer ${offer.id}`);
 
@@ -1234,7 +1302,7 @@ export class OffersService {
    */
   private async handleAllSignaturesCompleted(
     offer: any,
-    signatureRequest: any
+    signatureRequest: any,
   ): Promise<void> {
     console.log(`✅ All signatures completed for offer ${offer.id}`);
 
@@ -1248,7 +1316,7 @@ export class OffersService {
       offer.status === OfferStatus.DECLINED
     ) {
       console.log(
-        `⚠️  Skipping duplicate webhook - offer ${offer.id} already processed (status: ${offer.status})`
+        `⚠️  Skipping duplicate webhook - offer ${offer.id} already processed (status: ${offer.status})`,
       );
       return;
     }
@@ -1263,7 +1331,7 @@ export class OffersService {
     // Regular offer acceptance flow
     // Download signed document
     const signedDoc = await this.dropboxSignService.downloadSignedDocument(
-      signatureRequest.signature_request_id
+      signatureRequest.signature_request_id,
     );
 
     // Upload to Supabase
@@ -1272,7 +1340,7 @@ export class OffersService {
       "attachments",
       s3Key,
       signedDoc,
-      "application/pdf"
+      "application/pdf",
     );
 
     // Check if offer has pending conditions
@@ -1301,7 +1369,7 @@ export class OffersService {
 
     if (hasPendingConditions) {
       console.log(
-        `📋 Offer ${offer.id} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`
+        `📋 Offer ${offer.id} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`,
       );
     } else {
       console.log(`✅ Offer ${offer.id} marked as ACCEPTED (no conditions)`);
@@ -1317,12 +1385,12 @@ export class OffersService {
       undefined, // no HTML
       offer.thread.emailThreadId,
       undefined, // no references for now
-      undefined // no custom message ID
+      undefined, // no custom message ID
       // TODO: Attach signed PDF to email
     );
 
     console.log(
-      `✅ Offer ${offer.id} accepted and signed document sent to buyer agent`
+      `✅ Offer ${offer.id} accepted and signed document sent to buyer agent`,
     );
   }
 
@@ -1337,13 +1405,13 @@ export class OffersService {
     // So the original offer remains active and seller can take other actions on it
     if (offer.isCounterOffer) {
       console.log(
-        `🔄 Counter-offer declined during signing, deleting counter-offer record ${offer.id}`
+        `🔄 Counter-offer declined during signing, deleting counter-offer record ${offer.id}`,
       );
       await this.prisma.offer.delete({
         where: { id: offer.id },
       });
       console.log(
-        `✅ Counter-offer deleted. Original offer ${offer.originalOfferId} remains active.`
+        `✅ Counter-offer deleted. Original offer ${offer.originalOfferId} remains active.`,
       );
       return;
     }
@@ -1391,8 +1459,8 @@ export class OffersService {
     if (!counterOffer.thread?.sender?.email) {
       throw new Error(
         `Cannot send counter-offer: buyer agent email not found. Thread sender: ${JSON.stringify(
-          counterOffer.thread?.sender
-        )}`
+          counterOffer.thread?.sender,
+        )}`,
       );
     }
 
@@ -1403,7 +1471,7 @@ export class OffersService {
     const senderId = counterOffer.thread.senderId;
 
     console.log(
-      `📧 Preparing to send counter-offer to buyer agent: ${buyerAgentName} <${buyerAgentEmail}>`
+      `📧 Preparing to send counter-offer to buyer agent: ${buyerAgentName} <${buyerAgentEmail}>`,
     );
 
     // =============================================================================
@@ -1427,7 +1495,7 @@ export class OffersService {
 
     if (activeOffers.length > 0) {
       console.log(
-        `📝 Superseding ${activeOffers.length} other active offer(s) on counter-offer send`
+        `📝 Superseding ${activeOffers.length} other active offer(s) on counter-offer send`,
       );
       for (const activeOffer of activeOffers) {
         await this.prisma.offer.update({
@@ -1443,7 +1511,7 @@ export class OffersService {
     try {
       // 1. Download signed PDF from Dropbox Sign
       const signedDoc = await this.dropboxSignService.downloadSignedDocument(
-        counterOffer.hellosignSignatureRequestId
+        counterOffer.hellosignSignatureRequestId,
       );
 
       // 2. Upload to Supabase
@@ -1452,7 +1520,7 @@ export class OffersService {
         "attachments",
         s3Key,
         signedDoc,
-        "application/pdf"
+        "application/pdf",
       );
 
       console.log(`✅ Counter-offer PDF uploaded to: ${s3Key}`);
@@ -1478,7 +1546,7 @@ export class OffersService {
         changes.push(
           `• Purchase Price: $${
             counterOffer.originalOffer.price?.toLocaleString() || "N/A"
-          } → $${editedFields.purchasePrice.toLocaleString()}`
+          } → $${editedFields.purchasePrice.toLocaleString()}`,
         );
       }
 
@@ -1486,17 +1554,17 @@ export class OffersService {
         changes.push(
           `• Deposit: $${
             counterOffer.originalOffer.deposit?.toLocaleString() || "N/A"
-          } → $${editedFields.deposit.toLocaleString()}`
+          } → $${editedFields.deposit.toLocaleString()}`,
         );
       }
 
       if (editedFields.completionDate) {
         const newDate = new Date(
-          editedFields.completionDate
+          editedFields.completionDate,
         ).toLocaleDateString();
         const oldDate = counterOffer.originalOffer?.closingDate
           ? new Date(
-              counterOffer.originalOffer.closingDate
+              counterOffer.originalOffer.closingDate,
             ).toLocaleDateString()
           : "N/A";
         changes.push(`• Completion Date: ${oldDate} → ${newDate}`);
@@ -1525,7 +1593,7 @@ ORIGINAL OFFER:
 • Completion Date: ${
         counterOffer.originalOffer?.closingDate
           ? new Date(
-              counterOffer.originalOffer.closingDate
+              counterOffer.originalOffer.closingDate,
             ).toLocaleDateString()
           : "N/A"
       }
@@ -1575,11 +1643,11 @@ ${counterOffer.sellerName || "The Seller"}`;
       // Prepare attachment filename
       const attachmentFilename = `counter-offer-${listingAddress.replace(
         /\s+/g,
-        "-"
+        "-",
       )}.pdf`;
 
       console.log(
-        `📎 Attaching signed PDF: ${attachmentFilename} (${signedDoc.length} bytes)`
+        `📎 Attaching signed PDF: ${attachmentFilename} (${signedDoc.length} bytes)`,
       );
 
       await this.mailgunService.sendEmail(
@@ -1591,7 +1659,7 @@ ${counterOffer.sellerName || "The Seller"}`;
         counterOffer.thread.emailThreadId, // In-Reply-To
         undefined, // References - would need to build from thread
         undefined, // Message-ID
-        [{ filename: attachmentFilename, data: signedDoc }] // Attachment
+        [{ filename: attachmentFilename, data: signedDoc }], // Attachment
       );
 
       console.log(`✅ Email sent with attachment to ${buyerAgentEmail}`);
@@ -1612,7 +1680,7 @@ ${counterOffer.sellerName || "The Seller"}`;
       // (only one active offer allowed between buyer and seller)
 
       console.log(
-        `✅ Counter-offer ${offerId} sent successfully to ${buyerAgentName} <${buyerAgentEmail}>`
+        `✅ Counter-offer ${offerId} sent successfully to ${buyerAgentName} <${buyerAgentEmail}>`,
       );
     } catch (error) {
       console.error(`❌ Failed to send counter-offer: ${error.message}`);
@@ -1643,7 +1711,7 @@ ${counterOffer.sellerName || "The Seller"}`;
     counterOfferId: string,
     extractedData: ApsParseResult | null,
     hasConfirmationSignature: boolean,
-    messageId: string
+    messageId: string,
   ): Promise<{ success: boolean; message: string; offer?: any }> {
     console.log(`🔄 Processing counter-offer acceptance for ${counterOfferId}`);
 
@@ -1673,7 +1741,7 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     if (counterOffer.status !== OfferStatus.AWAITING_BUYER_SIGNATURE) {
       console.error(
-        `❌ Counter-offer ${counterOfferId} is not awaiting buyer signature. Status: ${counterOffer.status}`
+        `❌ Counter-offer ${counterOfferId} is not awaiting buyer signature. Status: ${counterOffer.status}`,
       );
       return {
         success: false,
@@ -1684,7 +1752,7 @@ ${counterOffer.sellerName || "The Seller"}`;
     // 2. Check if confirmation signature is present
     if (!hasConfirmationSignature) {
       console.log(
-        `⚠️  Counter-offer acceptance received but missing confirmation signature`
+        `⚠️  Counter-offer acceptance received but missing confirmation signature`,
       );
       return {
         success: false,
@@ -1710,7 +1778,7 @@ ${counterOffer.sellerName || "The Seller"}`;
         Math.abs(counterOfferPrice - formPrice) > 1
       ) {
         discrepancies.push(
-          `Purchase price mismatch: Counter-offer=$${counterOfferPrice.toLocaleString()}, Form=$${formPrice.toLocaleString()}`
+          `Purchase price mismatch: Counter-offer=$${counterOfferPrice.toLocaleString()}, Form=$${formPrice.toLocaleString()}`,
         );
       }
 
@@ -1724,7 +1792,7 @@ ${counterOffer.sellerName || "The Seller"}`;
         Math.abs(counterOfferDeposit - formDeposit) > 1
       ) {
         discrepancies.push(
-          `Deposit mismatch: Counter-offer=$${counterOfferDeposit.toLocaleString()}, Form=$${formDeposit.toLocaleString()}`
+          `Deposit mismatch: Counter-offer=$${counterOfferDeposit.toLocaleString()}, Form=$${formDeposit.toLocaleString()}`,
         );
       }
 
@@ -1737,11 +1805,11 @@ ${counterOffer.sellerName || "The Seller"}`;
           // Allow 1 day tolerance for date comparisons
           const daysDiff = Math.abs(
             (counterOfferDate.getTime() - formDate.getTime()) /
-              (1000 * 60 * 60 * 24)
+              (1000 * 60 * 60 * 24),
           );
           if (daysDiff > 1) {
             discrepancies.push(
-              `Closing date mismatch: Counter-offer=${counterOfferDate.toLocaleDateString()}, Form=${formDate.toLocaleDateString()}`
+              `Closing date mismatch: Counter-offer=${counterOfferDate.toLocaleDateString()}, Form=${formDate.toLocaleDateString()}`,
             );
           }
         }
@@ -1751,7 +1819,7 @@ ${counterOffer.sellerName || "The Seller"}`;
     // Block acceptance if discrepancies are found
     if (discrepancies.length > 0) {
       console.log(
-        `❌ Discrepancies found between counter-offer and acceptance form - blocking acceptance:`
+        `❌ Discrepancies found between counter-offer and acceptance form - blocking acceptance:`,
       );
       discrepancies.forEach((d) => console.log(`   - ${d}`));
 
@@ -1760,7 +1828,7 @@ ${counterOffer.sellerName || "The Seller"}`;
         where: { id: counterOfferId },
         data: {
           errorMessage: `Acceptance rejected due to discrepancies: ${discrepancies.join(
-            "; "
+            "; ",
           )}`,
         },
       });
@@ -1768,7 +1836,7 @@ ${counterOffer.sellerName || "The Seller"}`;
       return {
         success: false,
         message: `Counter-offer acceptance rejected due to discrepancies between the counter-offer terms and the submitted form:\n\n${discrepancies.join(
-          "\n"
+          "\n",
         )}\n\nPlease ensure the signed form matches the original counter-offer terms exactly.`,
       };
     }
@@ -1787,7 +1855,7 @@ ${counterOffer.sellerName || "The Seller"}`;
     ) {
       scheduleAConditions = extractedData.scheduleAConditions;
       console.log(
-        `📋 Found ${scheduleAConditions.length} Schedule A condition(s) from signed form`
+        `📋 Found ${scheduleAConditions.length} Schedule A condition(s) from signed form`,
       );
     } else {
       // Fall back to conditions stored on the counter offer (from editedFields or original offer)
@@ -1813,7 +1881,7 @@ ${counterOffer.sellerName || "The Seller"}`;
 
         if (scheduleAConditions.length > 0) {
           console.log(
-            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer editedFields`
+            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer editedFields`,
           );
         }
       } else if (
@@ -1837,7 +1905,7 @@ ${counterOffer.sellerName || "The Seller"}`;
 
         if (scheduleAConditions.length > 0) {
           console.log(
-            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer conditions field`
+            `📋 Found ${scheduleAConditions.length} condition(s) from counter offer conditions field`,
           );
         }
       }
@@ -1874,11 +1942,11 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     if (hasPendingConditions) {
       console.log(
-        `📋 Counter-offer ${counterOfferId} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`
+        `📋 Counter-offer ${counterOfferId} marked as CONDITIONALLY_ACCEPTED (${pendingConditions.length} pending condition(s))`,
       );
     } else {
       console.log(
-        `✅ Counter-offer ${counterOfferId} marked as ACCEPTED (no conditions)`
+        `✅ Counter-offer ${counterOfferId} marked as ACCEPTED (no conditions)`,
       );
     }
 
@@ -1900,7 +1968,7 @@ ${counterOffer.sellerName || "The Seller"}`;
     });
 
     console.log(
-      `✅ Counter-offer acceptance processed successfully (status: ${newStatus})`
+      `✅ Counter-offer acceptance processed successfully (status: ${newStatus})`,
     );
 
     return {
@@ -1918,7 +1986,7 @@ ${counterOffer.sellerName || "The Seller"}`;
    */
   async findActiveCounterOfferForSender(
     listingId: string,
-    senderId: string
+    senderId: string,
   ): Promise<any | null> {
     const counterOffer = await this.prisma.offer.findFirst({
       where: {
@@ -2028,7 +2096,7 @@ ${counterOffer.sellerName || "The Seller"}`;
   private async autoRejectInvalidOffer(
     message: any,
     attachment: any,
-    validationErrors: any[]
+    validationErrors: any[],
   ): Promise<void> {
     console.log(`📧 Sending rejection email for invalid offer...`);
 
@@ -2039,7 +2107,7 @@ ${counterOffer.sellerName || "The Seller"}`;
 
     if (!listing || !sender) {
       console.error(
-        "❌ Cannot send rejection email: missing listing or sender info"
+        "❌ Cannot send rejection email: missing listing or sender info",
       );
       return;
     }
@@ -2078,7 +2146,7 @@ Smart Brokerage Platform`;
         undefined, // no HTML
         thread.emailThreadId, // In-Reply-To
         undefined, // no references for now
-        undefined // no custom message ID
+        undefined, // no custom message ID
       );
 
       console.log(`✅ Rejection email sent to ${sender.email}`);
@@ -2100,6 +2168,373 @@ Smart Brokerage Platform`;
     } catch (error: any) {
       console.error(`❌ Failed to update message:`, error.message);
     }
+  }
+
+  // =============================================================================
+  // DATE VALIDATION
+  // =============================================================================
+
+  /**
+   * Validate offer dates to protect sellers
+   *
+   * Errors (auto-reject):
+   * - Closing date missing or in the past
+   * - Expiry date in the past
+   * - Expiry date after closing date
+   *
+   * Warnings (notify seller):
+   * - Closing date < 30 days away
+   * - Expiry gives seller < 24 hours to respond
+   * - Condition deadline < 3 days away or missing
+   *
+   * @returns Object with status ('passed', 'warnings', 'failed') and array of issues
+   */
+  validateOfferDates(
+    closingDate: Date | null | undefined,
+    expiryDate: Date | null | undefined,
+    conditions: Array<{ dueDate?: Date | null; description?: string }> = [],
+  ): {
+    status: "passed" | "warnings" | "failed";
+    issues: Array<{
+      field: string;
+      severity: "error" | "warning";
+      message: string;
+    }>;
+  } {
+    const issues: Array<{
+      field: string;
+      severity: "error" | "warning";
+      message: string;
+    }> = [];
+    const now = new Date();
+    const oneDayFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const thirtyDaysFromNow = new Date(
+      now.getTime() + 30 * 24 * 60 * 60 * 1000,
+    );
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    // === CLOSING DATE VALIDATION ===
+    if (!closingDate) {
+      issues.push({
+        field: "closingDate",
+        severity: "error",
+        message: "Closing date is missing",
+      });
+    } else {
+      if (closingDate <= now) {
+        issues.push({
+          field: "closingDate",
+          severity: "error",
+          message: "Closing date must be in the future",
+        });
+      } else if (closingDate < thirtyDaysFromNow) {
+        issues.push({
+          field: "closingDate",
+          severity: "warning",
+          message: `Closing date is less than 30 days away (${closingDate.toLocaleDateString()})`,
+        });
+      }
+    }
+
+    // === EXPIRY DATE VALIDATION ===
+    if (!expiryDate) {
+      // Not an error - we set a default 24-hour expiry if missing
+      issues.push({
+        field: "expiryDate",
+        severity: "warning",
+        message: "Expiry date is missing - defaulting to 24 hours",
+      });
+    } else {
+      if (expiryDate <= now) {
+        issues.push({
+          field: "expiryDate",
+          severity: "error",
+          message: "Offer has already expired",
+        });
+      } else if (expiryDate < oneDayFromNow) {
+        issues.push({
+          field: "expiryDate",
+          severity: "warning",
+          message: `Expiry gives seller less than 24 hours to respond (expires ${expiryDate.toLocaleString()})`,
+        });
+      }
+
+      // Expiry must be before closing
+      if (closingDate && expiryDate > closingDate) {
+        issues.push({
+          field: "expiryDate",
+          severity: "error",
+          message: "Expiry date cannot be after closing date",
+        });
+      }
+    }
+
+    // === CONDITION DEADLINE VALIDATION ===
+    for (let i = 0; i < conditions.length; i++) {
+      const condition = conditions[i];
+      const conditionLabel = `condition[${i}]`;
+      const shortDesc =
+        condition.description?.substring(0, 30) || `Condition ${i + 1}`;
+
+      if (!condition.dueDate) {
+        issues.push({
+          field: conditionLabel,
+          severity: "warning",
+          message: `Condition "${shortDesc}..." has no deadline specified`,
+        });
+      } else {
+        if (condition.dueDate <= now) {
+          issues.push({
+            field: conditionLabel,
+            severity: "error",
+            message: `Condition "${shortDesc}..." deadline is in the past`,
+          });
+        } else if (condition.dueDate < threeDaysFromNow) {
+          issues.push({
+            field: conditionLabel,
+            severity: "warning",
+            message: `Condition "${shortDesc}..." deadline is less than 3 days away`,
+          });
+        }
+
+        // Condition deadline must be before closing
+        if (closingDate && condition.dueDate > closingDate) {
+          issues.push({
+            field: conditionLabel,
+            severity: "error",
+            message: `Condition "${shortDesc}..." deadline is after closing date`,
+          });
+        }
+      }
+    }
+
+    // Determine overall status
+    const hasErrors = issues.some((i) => i.severity === "error");
+    const hasWarnings = issues.some((i) => i.severity === "warning");
+
+    let status: "passed" | "warnings" | "failed";
+    if (hasErrors) {
+      status = "failed";
+    } else if (hasWarnings) {
+      status = "warnings";
+    } else {
+      status = "passed";
+    }
+
+    // Log validation result
+    if (issues.length > 0) {
+      console.log(`📅 Date validation: ${status.toUpperCase()}`);
+      issues.forEach((issue) => {
+        const icon = issue.severity === "error" ? "❌" : "⚠️";
+        console.log(`   ${icon} ${issue.field}: ${issue.message}`);
+      });
+    } else {
+      console.log(`📅 Date validation: PASSED (all dates valid)`);
+    }
+
+    return { status, issues };
+  }
+
+  /**
+   * Validate OREA offer data (beyond dates)
+   *
+   * Errors (auto-reject):
+   * - Missing required fields (price, buyer name, property address)
+   * - Property address doesn't match listing
+   * - Deposit >= Price (invalid)
+   *
+   * Warnings (notify seller):
+   * - Missing deposit
+   * - Deposit < 1% of price
+   * - Price < 10,000 (parsing issue?)
+   * - Low document confidence
+   *
+   * @returns Object with status ('passed', 'warnings', 'failed') and array of issues
+   */
+  validateOfferData(
+    extractedData: {
+      price?: number | null;
+      deposit?: number | null;
+      buyerName?: string | null;
+      propertyAddress?: string | null;
+      docConfidence?: number;
+      hasSellerSignatures?: boolean;
+      isNewOffer?: boolean;
+    },
+    listingAddress: string,
+  ): {
+    status: "passed" | "warnings" | "failed";
+    issues: Array<{
+      field: string;
+      severity: "error" | "warning";
+      message: string;
+      category: "required" | "address" | "financial" | "confidence";
+    }>;
+  } {
+    const issues: Array<{
+      field: string;
+      severity: "error" | "warning";
+      message: string;
+      category: "required" | "address" | "financial" | "confidence";
+    }> = [];
+
+    // === REQUIRED FIELDS VALIDATION ===
+    if (!extractedData.price || extractedData.price <= 0) {
+      issues.push({
+        field: "price",
+        severity: "error",
+        message: "Purchase price is missing or invalid",
+        category: "required",
+      });
+    }
+
+    if (!extractedData.buyerName || extractedData.buyerName.trim() === "") {
+      issues.push({
+        field: "buyerName",
+        severity: "error",
+        message: "Buyer name is missing",
+        category: "required",
+      });
+    }
+
+    if (
+      !extractedData.propertyAddress ||
+      extractedData.propertyAddress.trim() === ""
+    ) {
+      issues.push({
+        field: "propertyAddress",
+        severity: "error",
+        message: "Property address is missing from the offer form",
+        category: "required",
+      });
+    }
+
+    if (!extractedData.deposit || extractedData.deposit <= 0) {
+      issues.push({
+        field: "deposit",
+        severity: "warning",
+        message: "Deposit amount is missing or invalid",
+        category: "required",
+      });
+    }
+
+    // === PROPERTY ADDRESS MATCHING ===
+    if (extractedData.propertyAddress && listingAddress) {
+      const normalizeAddress = (addr: string) =>
+        addr
+          .toLowerCase()
+          .replace(/[.,#\-]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const formAddress = normalizeAddress(extractedData.propertyAddress);
+      const listAddr = normalizeAddress(listingAddress);
+
+      // Check if the form address contains the key parts of listing address
+      // (street number and street name should match)
+      const listingParts = listAddr.split(" ").filter((p) => p.length > 2);
+      const matchScore = listingParts.filter((part) =>
+        formAddress.includes(part),
+      ).length;
+      const matchPercent =
+        listingParts.length > 0 ? matchScore / listingParts.length : 0;
+
+      if (matchPercent < 0.5) {
+        issues.push({
+          field: "propertyAddress",
+          severity: "error",
+          message: `Property address in offer "${extractedData.propertyAddress}" does not match listing address "${listingAddress}"`,
+          category: "address",
+        });
+      }
+    }
+
+    // === FINANCIAL CONSISTENCY ===
+    if (
+      extractedData.price &&
+      extractedData.deposit &&
+      extractedData.deposit >= extractedData.price
+    ) {
+      issues.push({
+        field: "deposit",
+        severity: "error",
+        message: "Deposit cannot be equal to or greater than purchase price",
+        category: "financial",
+      });
+    }
+
+    if (extractedData.price && extractedData.price < 10000) {
+      issues.push({
+        field: "price",
+        severity: "warning",
+        message: `Purchase price ($${extractedData.price}) seems unusually low - possible parsing error`,
+        category: "financial",
+      });
+    }
+
+    if (
+      extractedData.price &&
+      extractedData.deposit &&
+      extractedData.deposit > 0 &&
+      extractedData.deposit < extractedData.price * 0.01
+    ) {
+      issues.push({
+        field: "deposit",
+        severity: "warning",
+        message: `Deposit ($${extractedData.deposit}) is less than 1% of purchase price`,
+        category: "financial",
+      });
+    }
+
+    // === CLEAN OFFER VALIDATION (For New Offers) ===
+    if (extractedData.isNewOffer && extractedData.hasSellerSignatures) {
+      issues.push({
+        field: "signatures",
+        severity: "warning", // Start as warning, can escalate to error later
+        message:
+          "New offer contains seller signatures/initials - should be clean",
+        category: "confidence", // Using confidence category for now
+      });
+    }
+
+    // === DOCUMENT CONFIDENCE ===
+    if (
+      extractedData.docConfidence !== undefined &&
+      extractedData.docConfidence < 0.5
+    ) {
+      issues.push({
+        field: "document",
+        severity: "warning",
+        message: `Low confidence in document parsing (${Math.round(extractedData.docConfidence * 100)}%) - please verify extracted data`,
+        category: "confidence",
+      });
+    }
+
+    // Determine overall status
+    const hasErrors = issues.some((i) => i.severity === "error");
+    const hasWarnings = issues.some((i) => i.severity === "warning");
+
+    let status: "passed" | "warnings" | "failed";
+    if (hasErrors) {
+      status = "failed";
+    } else if (hasWarnings) {
+      status = "warnings";
+    } else {
+      status = "passed";
+    }
+
+    // Log validation result
+    if (issues.length > 0) {
+      console.log(`📋 Offer data validation: ${status.toUpperCase()}`);
+      issues.forEach((issue) => {
+        const icon = issue.severity === "error" ? "❌" : "⚠️";
+        console.log(`   ${icon} [${issue.category}] ${issue.message}`);
+      });
+    } else {
+      console.log(`📋 Offer data validation: PASSED (all data valid)`);
+    }
+
+    return { status, issues };
   }
 
   /**
@@ -2127,7 +2562,7 @@ Smart Brokerage Platform`;
           year?: string;
           time?: string;
         }
-      | undefined
+      | undefined,
   ): Date | undefined {
     if (!dateParts?.day || !dateParts?.month || !dateParts?.year) {
       return undefined;
@@ -2164,7 +2599,7 @@ Smart Brokerage Platform`;
 
       const monthLower = cleanMonth.toLowerCase();
       const monthIndex = monthNames.findIndex((m) =>
-        monthLower.startsWith(m.substring(0, 3))
+        monthLower.startsWith(m.substring(0, 3)),
       );
 
       if (monthIndex === -1) {
@@ -2178,7 +2613,7 @@ Smart Brokerage Platform`;
 
       if (isNaN(dayNum) || isNaN(yearNum)) {
         console.log(
-          `⚠️ Invalid day or year: day="${cleanDay}", year="${cleanYear}"`
+          `⚠️ Invalid day or year: day="${cleanDay}", year="${cleanYear}"`,
         );
         return undefined;
       }
@@ -2213,7 +2648,7 @@ Smart Brokerage Platform`;
       // Validate the date
       if (isNaN(date.getTime())) {
         console.log(
-          `⚠️ Invalid date created from: ${JSON.stringify(dateParts)}`
+          `⚠️ Invalid date created from: ${JSON.stringify(dateParts)}`,
         );
         return undefined;
       }
@@ -2223,7 +2658,7 @@ Smart Brokerage Platform`;
       console.error(
         `❌ Error parsing date from APS result:`,
         error.message,
-        dateParts
+        dateParts,
       );
       return undefined;
     }
@@ -2242,6 +2677,8 @@ Smart Brokerage Platform`;
     conditions?: string;
     scheduleAConditions?: any[];
     s3Key?: string;
+    buyerName?: string;
+    propertyAddress?: string;
   } {
     const result: any = {};
 
@@ -2251,7 +2688,7 @@ Smart Brokerage Platform`;
         .formFieldsExtracted as ApsParseResult;
 
       console.log(
-        `📄 Using comprehensive APS data (strategy: ${apsData.strategyUsed})`
+        `📄 Using comprehensive APS data (strategy: ${apsData.strategyUsed})`,
       );
 
       // Extract price and deposit
@@ -2272,7 +2709,7 @@ Smart Brokerage Platform`;
         result.closingDate = this.parseDateFromApsResult(apsData.completion);
         if (result.closingDate) {
           console.log(
-            `📅 Parsed closing date: ${result.closingDate.toISOString()}`
+            `📅 Parsed closing date: ${result.closingDate.toISOString()}`,
           );
         }
       }
@@ -2282,7 +2719,7 @@ Smart Brokerage Platform`;
         result.expiryDate = this.parseDateFromApsResult(apsData.irrevocability);
         if (result.expiryDate) {
           console.log(
-            `⏰ Parsed expiry date: ${result.expiryDate.toISOString()}`
+            `⏰ Parsed expiry date: ${result.expiryDate.toISOString()}`,
           );
         }
       }
@@ -2294,11 +2731,19 @@ Smart Brokerage Platform`;
       ) {
         result.scheduleAConditions = apsData.scheduleAConditions;
         console.log(
-          `📋 Found ${apsData.scheduleAConditions.length} Schedule A condition(s)`
+          `📋 Found ${apsData.scheduleAConditions.length} Schedule A condition(s)`,
         );
       }
 
       result.s3Key = attachment.s3Key;
+
+      // Extract buyer name and property address for validation
+      if (apsData.buyer_full_name) {
+        result.buyerName = apsData.buyer_full_name;
+      }
+      if (apsData.property?.property_address) {
+        result.propertyAddress = apsData.property.property_address;
+      }
     } else if (attachment?.documentAnalysis?.extractedData) {
       // Fallback to legacy extractedData format
       const data = attachment.documentAnalysis.extractedData as any;
@@ -2315,7 +2760,7 @@ Smart Brokerage Platform`;
           result.closingDate = parsedClosingDate;
         } else {
           console.log(
-            `⚠️ Invalid closingDate extracted: "${data.closingDate}"`
+            `⚠️ Invalid closingDate extracted: "${data.closingDate}"`,
           );
         }
       }
@@ -2344,14 +2789,14 @@ Smart Brokerage Platform`;
    */
   private async createOfferConditions(
     offerId: string,
-    scheduleAConditions: any[]
+    scheduleAConditions: any[],
   ): Promise<void> {
     if (!scheduleAConditions || scheduleAConditions.length === 0) {
       return;
     }
 
     console.log(
-      `📋 Creating ${scheduleAConditions.length} offer condition(s)...`
+      `📋 Creating ${scheduleAConditions.length} offer condition(s)...`,
     );
 
     for (const condition of scheduleAConditions) {
@@ -2368,7 +2813,7 @@ Smart Brokerage Platform`;
           dueDate = new Date(condition.dueDate);
           if (isNaN(dueDate.getTime())) {
             console.warn(
-              `Invalid due date for condition: ${cleanedDescription}`
+              `Invalid due date for condition: ${cleanedDescription}`,
             );
             dueDate = undefined;
           }
@@ -2389,7 +2834,7 @@ Smart Brokerage Platform`;
       });
 
       console.log(
-        `  ✓ Created condition: ${cleanedDescription.substring(0, 50)}...`
+        `  ✓ Created condition: ${cleanedDescription.substring(0, 50)}...`,
       );
     }
   }
@@ -2447,7 +2892,7 @@ Smart Brokerage Platform`;
    */
   async fulfillConditionsFromOrea124(
     offerId: string,
-    orea124Result: any
+    orea124Result: any,
   ): Promise<void> {
     if (!orea124Result.success || !orea124Result.fulfilledConditions) {
       console.log(`⚠️  OREA 124 parsing failed or no conditions found`);
@@ -2455,7 +2900,7 @@ Smart Brokerage Platform`;
     }
 
     console.log(
-      `📋 Processing ${orea124Result.fulfilledConditions.length} fulfilled condition(s) for offer ${offerId}...`
+      `📋 Processing ${orea124Result.fulfilledConditions.length} fulfilled condition(s) for offer ${offerId}...`,
     );
 
     // Get all pending conditions for this offer
@@ -2483,7 +2928,7 @@ Smart Brokerage Platform`;
         }
       } catch (error) {
         console.warn(
-          `Failed to parse document date: ${orea124Result.documentDate}`
+          `Failed to parse document date: ${orea124Result.documentDate}`,
         );
       }
     }
@@ -2492,7 +2937,7 @@ Smart Brokerage Platform`;
     let matchedCount = 0;
     for (const fulfilledCondition of orea124Result.fulfilledConditions) {
       const fulfilledKey = this.normalizeConditionText(
-        fulfilledCondition.description
+        fulfilledCondition.description,
       );
 
       // Find best matching pending condition
@@ -2513,8 +2958,8 @@ Smart Brokerage Platform`;
         console.log(
           `  ✓ Marked condition as COMPLETED: ${matchingCondition.description.substring(
             0,
-            50
-          )}...`
+            50,
+          )}...`,
         );
         matchedCount++;
       } else {
@@ -2522,14 +2967,14 @@ Smart Brokerage Platform`;
         console.log(
           `  ⚠️  No matching condition found for: ${fulfilledCondition.description.substring(
             0,
-            50
-          )}...`
+            50,
+          )}...`,
         );
       }
     }
 
     console.log(
-      `✅ Matched and completed ${matchedCount}/${orea124Result.fulfilledConditions.length} condition(s)`
+      `✅ Matched and completed ${matchedCount}/${orea124Result.fulfilledConditions.length} condition(s)`,
     );
 
     // Check if all conditions are now fulfilled
@@ -2564,10 +3009,10 @@ Smart Brokerage Platform`;
 
     // Check if all conditions are completed or waived
     const pendingConditions = allConditions.filter(
-      (c) => c.status === "PENDING"
+      (c) => c.status === "PENDING",
     );
     const expiredConditions = allConditions.filter(
-      (c) => c.status === "EXPIRED"
+      (c) => c.status === "EXPIRED",
     );
 
     if (pendingConditions.length === 0 && expiredConditions.length === 0) {
@@ -2586,12 +3031,12 @@ Smart Brokerage Platform`;
         });
 
         console.log(
-          `🎉 All conditions fulfilled! Offer ${offerId} marked as ACCEPTED`
+          `🎉 All conditions fulfilled! Offer ${offerId} marked as ACCEPTED`,
         );
       }
     } else {
       console.log(
-        `📋 Offer ${offerId} still has ${pendingConditions.length} pending condition(s)`
+        `📋 Offer ${offerId} still has ${pendingConditions.length} pending condition(s)`,
       );
     }
   }
@@ -2604,7 +3049,7 @@ Smart Brokerage Platform`;
    */
   private buildTemplateCustomFields(
     originalOffer: any,
-    editedFields: CounterOfferDto["editedFields"]
+    editedFields: CounterOfferDto["editedFields"],
   ): Record<string, string> {
     const customFields: Record<string, string> = {};
 
@@ -2625,7 +3070,7 @@ Smart Brokerage Platform`;
 
     if (!apsParseResult) {
       console.warn(
-        "No ApsParseResult found for original offer, using basic data"
+        "No ApsParseResult found for original offer, using basic data",
       );
       // Fallback to basic offer data
       return this.buildBasicTemplateFields(originalOffer, editedFields);
@@ -2678,7 +3123,7 @@ Smart Brokerage Platform`;
     // Apply edited fields as overrides
     if (editedFields.purchasePrice !== undefined) {
       customFields["price_and_deposit.purchase_price.numeric"] = String(
-        editedFields.purchasePrice
+        editedFields.purchasePrice,
       );
       // Also update the written form (simplified)
       customFields["price_and_deposit.purchase_price.written"] =
@@ -2687,10 +3132,10 @@ Smart Brokerage Platform`;
 
     if (editedFields.deposit !== undefined) {
       customFields["price_and_deposit.deposit.numeric"] = String(
-        editedFields.deposit
+        editedFields.deposit,
       );
       customFields["price_and_deposit.deposit.written"] = this.numberToWords(
-        editedFields.deposit
+        editedFields.deposit,
       );
     }
 
@@ -2742,7 +3187,7 @@ Smart Brokerage Platform`;
     console.log(
       `📋 Built ${
         Object.keys(customFields).length
-      } custom fields for counter-offer template`
+      } custom fields for counter-offer template`,
     );
 
     return customFields;
@@ -2753,20 +3198,20 @@ Smart Brokerage Platform`;
    */
   private buildBasicTemplateFields(
     originalOffer: any,
-    editedFields: CounterOfferDto["editedFields"]
+    editedFields: CounterOfferDto["editedFields"],
   ): Record<string, string> {
     const fields: Record<string, string> = {};
 
     // Use basic offer data
     if (originalOffer.price || editedFields.purchasePrice) {
       fields["price_and_deposit.purchase_price.numeric"] = String(
-        editedFields.purchasePrice || originalOffer.price
+        editedFields.purchasePrice || originalOffer.price,
       );
     }
 
     if (originalOffer.deposit || editedFields.deposit) {
       fields["price_and_deposit.deposit.numeric"] = String(
-        editedFields.deposit || originalOffer.deposit
+        editedFields.deposit || originalOffer.deposit,
       );
     }
 

@@ -222,6 +222,7 @@ model DocumentAnalysis {
   validationStatus         String?  // 'passed', 'failed', 'not_validated'
   validationErrors         Json?    // Array of validation issues
   hasRequiredSignatures    Boolean? // Buyer signatures detected
+  hasSellerSignatures      Boolean? // Seller signatures detected (should be false for new offers)
   priceMatchesExtracted    Boolean? // Price field filled correctly
   formFieldsExtracted      Json?    // Raw APS parser result (ApsParseResult)
 
@@ -295,6 +296,10 @@ model Offer {
   // Metadata
   declineReason               String?     @db.Text
   errorMessage                String?     @db.Text // Error during preparation or signing
+  dateValidationStatus        String?     // 'passed', 'warnings', 'failed'
+  dateValidationIssues        Json?       // Array of validation issues [{field, severity, message}]
+  validationStatus            String?     // 'passed', 'warnings', 'failed' - covers all validations
+  validationIssues            Json?       // Array of all validation issues [{field, severity, message, category}]
   createdAt                   DateTime    @default(now())
   updatedAt                   DateTime    @updatedAt
 
